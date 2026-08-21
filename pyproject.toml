@@ -1,0 +1,61 @@
+[project]
+name = "cisco-vmanage-mcp"
+version = "1.0.0"
+description = "MCP server exposing Cisco SD-WAN vManage APIs for LLM agents with correlation, root-cause analysis, and operational guardrails"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Jamie Blair", email = "jamie@jamieblair.co.uk" }
+]
+keywords = ["cisco", "sd-wan", "vmanage", "mcp", "ai-agents", "network-automation"]
+dependencies = [
+    "mcp[cli]>=1.9.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "click>=8.0.0",
+]
+
+[project.scripts]
+cisco-vmanage-mcp = "cisco_vmanage_mcp.server:main"
+vmanage-mcp = "cisco_vmanage_mcp.cli:cli"
+vmanage-mcp-install = "cisco_vmanage_mcp.installer:main"
+vmanage-console = "cisco_vmanage_mcp.app:main"
+
+# Note: When running with python -m, use 'python -m cisco_vmanage_mcp'
+# (not 'python -m cisco_vmanage_mcp.server') to avoid duplicate module loading.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["tests"]
+
+[project.optional-dependencies]
+ai = [
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+    "google-genai>=1.0.0",
+]
+claude = ["anthropic>=0.40.0"]
+openai = ["openai>=1.50.0"]
+gemini = ["google-genai>=1.0.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "commitizen>=3.0",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "1.0.0"
+version_files = [
+    "src/cisco_vmanage_mcp/__init__.py:__version__",
+    "pyproject.toml:version",
+]
+tag_format = "v$version"
+changelog_file = "CHANGELOG.md"
+update_changelog_on_bump = true
