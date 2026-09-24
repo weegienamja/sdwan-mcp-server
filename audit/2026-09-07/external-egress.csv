@@ -1,0 +1,8 @@
+destination,default,trigger,data,transport,control
+Cisco vManage,Required,Any operational tool,"credentials during auth; requested network API data",HTTPS,"TLS verify on by default; private CA supported; read-only public tools"
+Cisco internal GitHub,On version tool,"vmanage_check_version","repository tag request only",Verified HTTPS,"No vManage credentials or API content"
+Splunk HEC,Off,VMANAGE_MCP_TELEMETRY=true,"tool name; random installation ID; duration; success; package version; timestamp",HTTPS recommended,"Operator URL/token; no tool result content"
+Cisco IDE telemetry,Off,VMANAGE_MCP_IDE_TELEMETRY=true,"tool name; duration; success; package/marketplace metadata; SDK-collected hostname/IP/MAC",HTTPS,"Python 3.12+ marketplace extra; privacy approval required"
+Anthropic,Off,Claude provider selected,"user prompts; conversation; selected vManage tool results",Verified HTTPS,"Explicit provider setup; OS keyring; ten-round tool limit"
+OpenAI,Off,OpenAI provider selected,"user prompts; conversation; selected vManage tool results",Verified HTTPS,"Explicit provider setup; OS keyring; ten-round tool limit"
+Google Gemini,Off,Gemini provider selected,"user prompts; conversation; selected vManage tool results",Verified HTTPS,"Explicit provider setup; OS keyring; ten-round tool limit"

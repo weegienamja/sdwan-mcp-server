@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d274d">
+  <title>SD-WAN Operations Canvas</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Cisco SD-WAN Operations Canvas home">
+        <img class="cisco-logo" src="/assets/cisco-logo.svg" alt="Cisco" width="76" height="40">
+        <small>SD-WAN Operations Canvas</small>
+      </a>
+      <div class="topbar-actions">
+        <span class="connection-state" id="connection-state" role="status" aria-label="vManage connection status: connecting"><i aria-hidden="true"></i> Connecting</span>
+        <button class="button button-secondary" id="refresh-button" type="button">Refresh evidence</button>
+      </div>
+    </header>
+
+    <nav class="rail" aria-label="Workspace views">
+      <button class="rail-item" type="button" data-view="setup"><span>00</span> Setup</button>
+      <button class="rail-item active" type="button" data-view="investigate" aria-current="page"><span>01</span> Investigate</button>
+      <button class="rail-item" type="button" data-view="topology"><span>02</span> Topology</button>
+      <button class="rail-item" type="button" data-view="inventory"><span>03</span> Inventory</button>
+      <button class="rail-item" type="button" data-view="actions"><span>04</span> Actions</button>
+      <button class="rail-item" type="button" data-view="integrations"><span>05</span> Integrations</button>
+      <button class="rail-item" type="button" data-view="assurance"><span>06</span> Assurance</button>
+      <button class="rail-item" type="button" data-view="changes"><span>07</span> Changes</button>
+      <div class="rail-foot">
+        <span>Read-only</span>
+        <strong id="version-label">v—</strong>
+      </div>
+    </nav>
+
+    <main id="main-content" tabindex="-1">
+      <section class="status-band" aria-label="Fabric status">
+        <div class="status-heading">
+          <span class="eyebrow">Live fabric posture</span>
+          <div class="health-line"><i id="health-light" role="img" aria-label="Fabric health: loading"></i><strong id="health-value">Loading</strong></div>
+          <time class="freshness" id="evidence-freshness">Evidence not loaded</time>
+        </div>
+        <dl class="metrics">
+          <div><dt>Devices</dt><dd id="device-count">—</dd></div>
+          <div><dt>Unreachable</dt><dd id="unreachable-count">—</dd></div>
+          <div><dt>Critical alarms</dt><dd id="critical-count">—</dd></div>
+          <div><dt>Impact scope</dt><dd id="impact-scope">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="workspace single-panel hidden" data-view-panel="setup">
+        <div class="setup-panel">
+          <div class="setup-heading">
+            <div>
+              <span class="eyebrow">Deployment setup</span>
+              <h1>Connect Cisco Catalyst SD-WAN</h1>
+              <p>Complete the four checks below. Detailed qualification results remain available before anything is saved.</p>
+            </div>
+            <span class="setup-state pending" id="setup-overall-state">Checking</span>
+          </div>
+
+          <ol class="setup-progress" aria-label="Setup progress">
+            <li data-setup-progress="deployment"><span>1</span><div><strong>Deployment</strong><small>Confirm where settings are managed</small></div></li>
+            <li data-setup-progress="connection"><span>2</span><div><strong>Connection</strong><small>Authenticate to vManage</small></div></li>
+            <li data-setup-progress="qualification"><span>3</span><div><strong>Qualification</strong><small>Verify APIs and inventory</small></div></li>
+            <li data-setup-progress="integrations"><span>4</span><div><strong>Integrations</strong><small>Review optional services</small></div></li>
+          </ol>
+
+          <section class="setup-stage" aria-labelledby="setup-deployment-heading">
+            <header class="setup-stage-heading"><span>1</span><div><h2 id="setup-deployment-heading">Deployment</h2><p>Confirm the security boundary before adding a controller.</p></div></header>
+            <dl class="setup-facts">
+              <div><dt>Configuration mode</dt><dd id="setup-mode">Checking</dd></div>
+              <div><dt>Signed-in role</dt><dd id="setup-role">Checking</dd></div>
+              <div><dt>Tenant</dt><dd id="setup-tenant">Checking</dd></div>
+              <div><dt>Credential storage</dt><dd id="setup-storage">Checking</dd></div>
+            </dl>
+            <p class="setup-notice" id="setup-deployment-notice">Loading deployment controls…</p>
+          </section>
+
+          <section class="setup-stage" aria-labelledby="setup-connection-heading">
+            <header class="setup-stage-heading"><span>2</span><div><h2 id="setup-connection-heading">Cisco SD-WAN Manager connection</h2><p>Use a dedicated read-only vManage account. The password is tested server-side and never returned to the browser.</p></div></header>
+            <form class="setup-form" id="setup-form">
+              <label for="setup-host">Manager hostname<small>Hostname or IPv4 address only. Do not include https:// or a path.</small><input id="setup-host" name="host" type="text" maxlength="253" autocomplete="url" required></label>
+              <label for="setup-port">HTTPS port<small>Usually 443.</small><input id="setup-port" name="port" type="number" min="1" max="65535" value="443" inputmode="numeric" required></label>
+              <label for="setup-username">Read-only username<small>Use a service account with only the API permissions this deployment needs.</small><input id="setup-username" name="username" type="text" maxlength="256" autocomplete="username" required></label>
+              <label for="setup-password">Password<small>Stored only in the owner-private server configuration file.</small><input id="setup-password" name="password" type="password" maxlength="1024" autocomplete="current-password" required></label>
+              <label class="setup-check" for="setup-verify-ssl"><input id="setup-verify-ssl" name="verify_ssl" type="checkbox" checked><span><strong>Verify TLS certificate</strong><small>Keep enabled for production. Use a CA bundle for private certificate authorities.</small></span></label>
+              <label for="setup-ca-bundle">Private CA bundle path <span>Optional</span><small>Path on the server, for example /etc/ssl/customer-vmanage-ca.pem.</small><input id="setup-ca-bundle" name="ca_bundle" type="text" maxlength="2048" autocomplete="off"></label>
+              <div class="setup-form-actions">
+                <button class="button button-quiet" id="setup-qualify-button" type="button">Qualify current connection</button>
+                <button class="button button-quiet" id="setup-test-button" type="button">Test connection</button>
+                <button class="button button-primary" id="setup-save-button" type="submit" disabled>Save and connect</button>
+              </div>
+            </form>
+            <output class="setup-message" id="setup-message" aria-live="polite">Enter the connection details, then test them before saving.</output>
+          </section>
+
+          <section class="setup-stage" aria-labelledby="setup-qualification-heading">
+            <header class="setup-stage-heading"><span>3</span><div><h2 id="setup-qualification-heading">Environment qualification</h2><p>The complete read-only capability report is shown here, including endpoint status, row counts, latency, software versions, and device families.</p></div></header>
+            <div id="setup-qualification" class="setup-qualification" aria-live="polite">
+              <p class="empty-state">Test the connection to generate a qualification report.</p>
+            </div>
+            <div class="setup-report-actions"><button class="button button-quiet" id="setup-download-report" type="button" disabled>Download JSON report</button></div>
+          </section>
+
+          <section class="setup-stage" aria-labelledby="setup-integrations-heading">
+            <header class="setup-stage-heading"><span>4</span><div><h2 id="setup-integrations-heading">Optional integrations</h2><p>These do not block core SD-WAN operations. Configure approved services in the deployment environment when needed.</p></div></header>
+            <div class="setup-integration-list" id="setup-integration-list"><p class="empty-state">Loading integration status…</p></div>
+            <div class="setup-ai-status" id="setup-ai-status">Browser AI status is loading.</div>
+            <div class="setup-client-install">
+              <div><strong>Connect an MCP client</strong><p>Run this once on each operator workstation to configure detected Claude Desktop, Claude Code, or Cursor clients.</p></div>
+              <code id="setup-install-command">vmanage-mcp-install</code>
+              <button class="button button-quiet" id="setup-copy-command" type="button">Copy command</button>
+            </div>
+          </section>
+
+          <div class="setup-finish">
+            <div><strong id="setup-finish-title">Setup is not complete</strong><p id="setup-finish-detail">Connect and qualify vManage to open the operations workspace.</p></div>
+            <button class="button button-primary" id="setup-open-canvas" type="button" disabled>Open Operations Canvas</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace" data-view-panel="investigate">
+        <div class="conversation-panel">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">Assistant</span>
+              <h1>Ask the network what is happening.</h1>
+            </div>
+            <fieldset class="assistant-mode-control" aria-label="Assistant response mode">
+              <legend class="sr-only">Assistant response mode</legend>
+              <label><input id="assistant-mode-evidence" type="radio" name="assistant-mode" value="evidence" checked><span>Evidence</span></label>
+              <label><input id="assistant-mode-generative" type="radio" name="assistant-mode" value="generative" disabled><span>AI explain</span></label>
+            </fieldset>
+          </div>
+
+          <div class="investigation-toolbar" aria-label="Investigation session">
+            <label for="investigation-select">Investigation</label>
+            <select id="investigation-select" aria-label="Current investigation"></select>
+            <button class="button button-quiet" id="new-investigation-button" type="button">New investigation</button>
+          </div>
+
+          <div class="prompt-row" aria-label="Suggested investigations">
+            <button type="button" data-prompt="Assess fabric health">Assess fabric health</button>
+            <button type="button" data-prompt="Show unreachable devices">Unreachable devices</button>
+            <button type="button" data-prompt="Show critical alarms">Critical alarms</button>
+            <button type="button" data-prompt="Is it safe to make a change?">Change readiness</button>
+          </div>
+
+          <div class="conversation" id="conversation" aria-label="Investigation conversation" aria-live="polite">
+            <article class="message assistant-message">
+              <div class="message-author">Operations assistant</div>
+              <p>I can investigate health, devices, alarms, and individual system IPs. Every conclusion stays linked to its vManage evidence.</p>
+            </article>
+          </div>
+
+          <form class="composer" id="assistant-form" aria-busy="false">
+            <label for="assistant-input">Ask about your fabric</label>
+            <div class="composer-row">
+              <textarea id="assistant-input" name="message" rows="2" maxlength="2000" placeholder="Why is site 100 degraded?" autocomplete="off"></textarea>
+              <div class="composer-actions">
+                <button class="button button-quiet" id="cancel-button" type="button" hidden>Cancel</button>
+                <button class="button button-primary" type="submit">Send</button>
+              </div>
+            </div>
+            <div class="composer-meta"><span>Local read-only analysis</span><span>Enter to send · Shift+Enter for newline</span></div>
+          </form>
+        </div>
+
+        <aside class="evidence-panel" aria-label="Investigation evidence">
+          <div class="section-heading compact">
+            <div><span class="eyebrow">Canvas</span><h2>Evidence in context</h2></div>
+            <div class="export-controls">
+              <label class="sr-only" for="export-format">Export format</label>
+              <select id="export-format"><option value="markdown">Markdown</option><option value="json">JSON</option></select>
+              <a class="button button-quiet" id="export-button" href="#" download aria-disabled="true">Export</a>
+            </div>
+          </div>
+          <div id="impact-panel" class="impact-panel"><span>Impact</span><strong>Waiting for fabric data</strong><p>Evidence will appear as the investigation progresses.</p></div>
+          <div class="evidence-section collaboration-section">
+            <div class="collaboration-heading"><h3>Investigation timeline</h3><label for="collaboration-owner">Owner<select id="collaboration-owner"></select></label></div>
+            <div class="audience-control"><label for="audience-view">Audience<select id="audience-view"><option value="executive">Executive</option><option value="noc" selected>NOC</option><option value="netops">NetOps</option><option value="secops">SecOps</option></select></label><div id="audience-summary" class="audience-summary">No audience view loaded</div></div>
+            <h4>Competing hypotheses</h4>
+            <ul id="collaboration-hypotheses" class="hypothesis-list"><li class="empty-state">No user hypotheses</li></ul>
+            <form id="hypothesis-form" class="hypothesis-form">
+              <label class="sr-only" for="hypothesis-title">Add hypothesis</label>
+              <input id="hypothesis-title" type="text" maxlength="1000" placeholder="Add a hypothesis" required>
+              <label class="sr-only" for="hypothesis-confidence">Confidence</label>
+              <select id="hypothesis-confidence"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select>
+              <button class="pin-button" type="submit">Add</button>
+            </form>
+            <ol id="collaboration-timeline" class="timeline-list"><li class="empty-state">No timeline loaded</li></ol>
+            <form id="collaboration-comment" class="comment-form">
+              <label class="sr-only" for="collaboration-comment-body">Add timeline comment</label>
+              <input id="collaboration-comment-body" type="text" maxlength="4000" placeholder="Add a comment" autocomplete="off">
+              <button class="pin-button" type="submit">Add</button>
+            </form>
+          </div>
+          <div class="evidence-section">
+            <h3>Pinned evidence</h3>
+            <ul id="pinned-list" class="pinned-list"><li class="empty-state">Nothing pinned yet</li></ul>
+          </div>
+          <div class="evidence-section">
+            <h3>Root-cause hypotheses</h3>
+            <ol id="root-causes" class="cause-list"><li class="empty-state">No analysis loaded</li></ol>
+          </div>
+          <div class="evidence-section">
+            <h3>Data sources</h3>
+            <ul id="source-list" class="source-list"><li class="empty-state">No source calls yet</li></ul>
+          </div>
+        </aside>
+      </section>
+
+      <section class="workspace single-panel hidden" data-view-panel="topology">
+        <div class="topology-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow">Connected context</span><h1>Fabric topology</h1></div>
+            <time class="view-freshness" id="topology-freshness">Not loaded</time>
+          </div>
+          <dl class="context-summary" id="topology-summary">
+            <div><dt>Sites</dt><dd>—</dd></div><div><dt>Edges</dt><dd>—</dd></div><div><dt>Transports</dt><dd>—</dd></div><div><dt>Tunnels</dt><dd>—</dd></div>
+          </dl>
+          <div class="topology-layout">
+            <div class="topology-map" id="topology-map" aria-label="Interactive fabric topology" aria-live="polite"><p class="empty-state">Open this view to load topology evidence.</p></div>
+            <aside class="topology-context" id="topology-context" aria-label="Selected topology context"><span class="eyebrow">Selection</span><h2>No object selected</h2><p>Select a controller, transport, site, or relationship to inspect its evidence.</p></aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace single-panel hidden" data-view-panel="inventory">
+        <div class="table-panel">
+          <div class="section-heading"><div><span class="eyebrow">Inventory</span><h1>Fabric devices</h1></div></div>
+          <div class="inventory-context" id="inventory-context" hidden><span></span><button class="button button-quiet" id="clear-inventory-filter" type="button">Clear site filter</button></div>
+          <div class="table-wrap"><table id="inventory-table" tabindex="-1"><caption>Fabric devices by site and reachability</caption><thead><tr><th>Device</th><th>System IP</th><th>Type</th><th>Site</th><th>State</th><th>Evidence</th></tr></thead><tbody id="inventory-body"></tbody></table></div>
+        </div>
+      </section>
+
+      <section class="workspace single-panel hidden" data-view-panel="actions">
+        <div class="actions-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow">Prioritized evidence</span><h1>Actions inbox</h1></div>
+            <time class="view-freshness" id="actions-freshness">Not loaded</time>
+          </div>
+          <dl class="context-summary priority-summary" id="actions-summary">
+            <div><dt>P1 immediate</dt><dd>—</dd></div><div><dt>P2 high</dt><dd>—</dd></div><div><dt>P3 medium</dt><dd>—</dd></div><div><dt>P4 observe</dt><dd>—</dd></div>
+          </dl>
+          <div class="actions-list" id="actions-list" aria-live="polite"><p class="empty-state">Open this view to correlate current alarms and events.</p></div>
+        </div>
+      </section>
+
+      <section class="workspace single-panel hidden" data-view-panel="integrations">
+        <div class="integrations-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow">Controlled extensions</span><h1>Integrations</h1></div>
+            <span class="mode-badge">Read and preview only</span>
+          </div>
+          <section class="integration-section" aria-labelledby="connectors-heading">
+            <div class="section-heading compact"><div><span class="eyebrow">Evidence sources</span><h2 id="connectors-heading">Connector registry</h2></div></div>
+            <div class="connector-list" id="connector-list"><p class="empty-state">Open this view to load connector status.</p></div>
+            <div class="connector-controls">
+              <label for="connector-capability">Evidence type<select id="connector-capability"><option value="alerts">Alerts</option><option value="path-evidence">Path evidence</option><option value="application-evidence">Application evidence</option><option value="events">Events</option></select></label>
+              <label for="connector-site">Site context<input id="connector-site" type="text" maxlength="64" placeholder="Optional site ID"></label>
+              <button class="button button-quiet" id="collect-connector-button" type="button">Collect evidence</button>
+            </div>
+            <div class="connector-evidence" id="connector-evidence" aria-live="polite"><p class="empty-state">No external evidence collected.</p></div>
+          </section>
+          <section class="integration-section" aria-labelledby="workflows-heading">
+            <div class="section-heading compact">
+              <div><span class="eyebrow">Outbound preview</span><h2 id="workflows-heading">Workflow drafts</h2></div>
+              <span class="no-delivery-badge">Delivery disabled</span>
+            </div>
+            <div class="workflow-controls">
+              <label for="workflow-destination">Destination<select id="workflow-destination"><option value="servicenow">ServiceNow</option><option value="webex">Webex</option><option value="slack">Slack</option></select></label>
+              <label for="workflow-target">Target<input id="workflow-target" type="text" maxlength="200" placeholder="Queue, room, or channel"></label>
+              <button class="button button-primary" id="create-workflow-button" type="button">Create draft</button>
+            </div>
+            <div class="workflow-list" id="workflow-list" aria-live="polite"><p class="empty-state">No workflow drafts.</p></div>
+          </section>
+          <section class="integration-section" aria-labelledby="agents-heading">
+            <div class="section-heading compact"><div><span class="eyebrow">Runtime policy</span><h2 id="agents-heading">Agent registry</h2></div></div>
+            <form class="agent-form" id="agent-form">
+              <label for="agent-id">Agent ID<input id="agent-id" type="text" maxlength="200" required></label>
+              <label for="agent-name">Display name<input id="agent-name" type="text" maxlength="200" required></label>
+              <label for="agent-connectors">Allowed connectors<select id="agent-connectors" multiple></select></label>
+              <label for="agent-classification">Maximum data class<select id="agent-classification"><option value="operational">Operational</option><option value="restricted">Restricted</option><option value="sensitive">Sensitive</option></select></label>
+              <button class="button button-quiet" type="submit">Register agent</button>
+            </form>
+            <div class="agent-list" id="agent-list"><p class="empty-state">No agents registered.</p></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="workspace single-panel hidden" data-view-panel="assurance">
+        <div class="assurance-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow">Historical context</span><h1>Assurance timeline</h1></div>
+            <div class="capture-controls">
+              <label><input id="include-configuration-hashes" type="checkbox"> Include config hashes</label>
+              <button class="button button-primary" id="capture-snapshot-button" type="button">Capture snapshot</button>
+            </div>
+          </div>
+          <section class="assurance-section" aria-labelledby="comparison-heading">
+            <div class="section-heading compact"><div><span class="eyebrow">Before and after</span><h2 id="comparison-heading">Compare fabric state</h2></div></div>
+            <div class="comparison-controls">
+              <label for="before-snapshot">Before<select id="before-snapshot"></select></label>
+              <label for="after-snapshot">After<select id="after-snapshot"></select></label>
+              <button class="button button-quiet" id="compare-snapshots-button" type="button">Compare</button>
+            </div>
+            <div class="comparison-result" id="comparison-result" aria-live="polite"><p class="empty-state">Capture at least two snapshots to compare fabric state.</p></div>
+          </section>
+          <section class="assurance-section" aria-labelledby="trends-heading">
+            <div class="section-heading compact"><div><span class="eyebrow">30-day window</span><h2 id="trends-heading">Fault-domain availability</h2></div></div>
+            <div class="trend-series" id="trend-series"><p class="empty-state">No historical SLA samples yet.</p></div>
+          </section>
+          <section class="assurance-section" aria-labelledby="history-heading">
+            <div class="section-heading compact"><div><span class="eyebrow">Retained evidence</span><h2 id="history-heading">Snapshot history</h2></div></div>
+            <div class="table-wrap snapshot-history"><table><caption>Retained fabric snapshots</caption><thead><tr><th>Captured</th><th>Health</th><th>Devices</th><th>Critical</th><th>Delayed sources</th><th>Evidence</th></tr></thead><tbody id="snapshot-history"></tbody></table></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="workspace single-panel hidden" data-view-panel="changes">
+        <div class="changes-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow">Guarded planning</span><h1>Change plans</h1></div>
+            <span class="no-delivery-badge">Execution disabled</span>
+          </div>
+          <form class="change-plan-form" id="change-plan-form">
+            <label for="change-operation">Operation<select id="change-operation"><option value="attach-device-template">Attach device template</option><option value="activate-central-policy">Activate central policy</option></select></label>
+            <label for="change-target-id">Template or policy ID<input id="change-target-id" type="text" maxlength="500" required></label>
+            <label for="change-intent">Intent<input id="change-intent" type="text" maxlength="1000" required></label>
+            <label for="change-targets">Targets<input id="change-targets" type="text" maxlength="2000" placeholder="edge-1, edge-2" required></label>
+            <label for="change-canaries">Canaries<input id="change-canaries" type="text" maxlength="1000" placeholder="edge-1"></label>
+            <label for="change-pre-snapshot">Pre-change snapshot<select id="change-pre-snapshot"></select></label>
+            <label for="change-rollback">Rollback strategy<input id="change-rollback" type="text" maxlength="2000" value="Restore the previous approved state."></label>
+            <button class="button button-primary" type="submit">Create plan</button>
+          </form>
+          <div class="verification-toolbar">
+            <label for="change-post-snapshot">Post-change snapshot<select id="change-post-snapshot"></select></label>
+          </div>
+          <div class="change-plan-list" id="change-plan-list" aria-live="polite"><p class="empty-state">No change plans.</p></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="sr-only" id="error-announcer" role="alert" aria-live="assertive"></div>
+  <script src="/assets/app.js" type="module"></script>
+</body>
+</html>

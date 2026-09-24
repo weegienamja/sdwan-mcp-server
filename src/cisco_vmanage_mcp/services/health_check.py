@@ -10,13 +10,13 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
+from typing import Any
 
 from cisco_vmanage_mcp.client import VManageClient
 
 
-class HealthLevel(str, Enum):
+class HealthLevel(StrEnum):
     """Computed health status for a component."""
     HEALTHY = "healthy"
     DEGRADED = "degraded"
@@ -24,7 +24,7 @@ class HealthLevel(str, Enum):
     UNKNOWN = "unknown"
 
 
-class DataSource(str, Enum):
+class DataSource(StrEnum):
     """API endpoints used as evidence for health signals."""
     DEVICE_LIST = "GET /dataservice/device"
     ALARM_COUNT = "GET /dataservice/alarms/count"
@@ -41,7 +41,7 @@ class DataFetchResult:
     """Result of a single API fetch, tracking success/failure for partial reporting."""
     source: DataSource
     success: bool
-    data: dict | list | None = None
+    data: dict[str, Any] | None = None
     error: str | None = None
     duration_ms: float = 0.0
 
@@ -105,6 +105,8 @@ class FabricHealthReport:
             return HealthLevel.CRITICAL
         if HealthLevel.DEGRADED in all_levels:
             return HealthLevel.DEGRADED
+        if self.partial or not self.devices:
+            return HealthLevel.UNKNOWN
         if HealthLevel.UNKNOWN in all_levels:
             return HealthLevel.UNKNOWN
         return HealthLevel.HEALTHY
@@ -129,13 +131,20 @@ async def _fetch_with_tracking(
             timeout=timeout_s,
         )
         duration = (time.monotonic() - start) * 1000
+        if not isinstance(data, dict):
+            return DataFetchResult(
+                source=source,
+                success=False,
+                error=f"Unexpected {type(data).__name__} response",
+                duration_ms=round(duration, 1),
+            )
         return DataFetchResult(
             source=source,
             success=True,
             data=data,
             duration_ms=round(duration, 1),
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         duration = (time.monotonic() - start) * 1000
         return DataFetchResult(
             source=source,
@@ -151,6 +160,16 @@ async def _fetch_with_tracking(
             error=f"{type(e).__name__}: {str(e)}",
             duration_ms=round(duration, 1),
         )
+
+
+def _response_rows(fetch: DataFetchResult) -> list[dict[str, Any]]:
+    """Return mapping rows from a successful tracked response."""
+    if not fetch.success or fetch.data is None:
+        return []
+    rows = fetch.data.get("data", [])
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
 
 
 def _parse_bfd_count(value) -> int:
@@ -311,18 +330,22 @@ async def assess_fabric_health(client: VManageClient) -> FabricHealthReport:
     report.fetch_results = [device_fetch, alarm_fetch]
 
     # Process device data
-    if device_fetch.success and device_fetch.data:
-        devices_raw = device_fetch.data.get("data", [])
-        for raw in devices_raw:
-            dh = compute_device_health(raw)
-            report.devices.append(dh)
+    if device_fetch.success:
+        devices_raw = _response_rows(device_fetch)
+        if devices_raw:
+            for raw in devices_raw:
+                dh = compute_device_health(raw)
+                report.devices.append(dh)
+        else:
+            report.partial = True
+            report.incomplete_sources.append(device_fetch.source.value)
     else:
         report.partial = True
         report.incomplete_sources.append(device_fetch.source.value)
 
     # Process alarm data
-    if alarm_fetch.success and alarm_fetch.data:
-        raw_counts = alarm_fetch.data.get("data", [])
+    if alarm_fetch.success:
+        raw_counts = _response_rows(alarm_fetch)
         if raw_counts and "severity" in raw_counts[0]:
             for item in raw_counts:
                 report.alarm_counts[item.get("severity", "Unknown")] = item.get("count", 0)
@@ -333,6 +356,116 @@ async def assess_fabric_health(client: VManageClient) -> FabricHealthReport:
         report.incomplete_sources.append(alarm_fetch.source.value)
 
     return report
+
+
+def _bfd_detail_signal(hostname: str, sessions: list[dict[str, Any]]) -> HealthSignal | None:
+    down_sessions = [session for session in sessions if session.get("state", "").lower() != "up"]
+    if not down_sessions:
+        return None
+    return HealthSignal(
+        level=HealthLevel.DEGRADED,
+        component=f"device/{hostname}/bfd-detail",
+        summary=f"{len(down_sessions)} BFD session(s) not in up state",
+        detail=(
+            f"Out of {len(sessions)} BFD sessions, {len(down_sessions)} are not up. "
+            f"Affected peers: "
+            f"{', '.join(session.get('system-ip', '?') for session in down_sessions[:5])}."
+        ),
+        source=DataSource.BFD_SESSIONS,
+        evidence={
+            "total": len(sessions),
+            "down": len(down_sessions),
+            "down_peers": [session.get("system-ip") for session in down_sessions[:5]],
+        },
+    )
+
+
+def _control_detail_signal(
+    hostname: str,
+    connections: list[dict[str, Any]],
+) -> HealthSignal | None:
+    non_up = [connection for connection in connections if connection.get("state", "").lower() != "up"]
+    if not non_up:
+        return None
+    return HealthSignal(
+        level=HealthLevel.DEGRADED,
+        component=f"device/{hostname}/control-detail",
+        summary=f"{len(non_up)} control connection(s) not up",
+        detail=(
+            f"Out of {len(connections)} control connections, {len(non_up)} are not in 'up' state. "
+            f"Affected peers: "
+            f"{', '.join(connection.get('system-ip', '?') for connection in non_up[:5])}."
+        ),
+        source=DataSource.CONTROL_CONNECTIONS,
+        evidence={"total": len(connections), "not_up": len(non_up)},
+    )
+
+
+def _cpu_signal(hostname: str, status: dict[str, Any]) -> HealthSignal | None:
+    try:
+        cpu_5 = float(status.get("min5_avg", 0))
+    except (ValueError, TypeError):
+        return None
+    if cpu_5 <= 70:
+        return None
+    critical = cpu_5 > 90
+    return HealthSignal(
+        level=HealthLevel.CRITICAL if critical else HealthLevel.DEGRADED,
+        component=f"device/{hostname}/cpu",
+        summary=(
+            f"CPU load is {'critically high' if critical else 'elevated'} ({cpu_5:.1f}%)"
+        ),
+        detail=(
+            f"5-minute CPU average is {cpu_5:.1f}%, which may impact forwarding."
+            if critical
+            else f"5-minute CPU average is {cpu_5:.1f}%."
+        ),
+        source=DataSource.SYSTEM_STATUS,
+        evidence={"cpu_5min": cpu_5},
+    )
+
+
+def _memory_signal(hostname: str, status: dict[str, Any]) -> HealthSignal | None:
+    try:
+        mem_used = int(status.get("mem_used", 0))
+        mem_free = int(status.get("mem_free", 1))
+    except (ValueError, TypeError):
+        return None
+    total = mem_used + mem_free
+    mem_pct = (mem_used / total) * 100 if total > 0 else 0
+    if mem_pct <= 80:
+        return None
+    critical = mem_pct > 90
+    return HealthSignal(
+        level=HealthLevel.CRITICAL if critical else HealthLevel.DEGRADED,
+        component=f"device/{hostname}/memory",
+        summary=(
+            f"Memory usage is {'critically high' if critical else 'elevated'} ({mem_pct:.0f}%)"
+        ),
+        detail=f"Memory usage is {mem_pct:.0f}% ({mem_used} used, {mem_free} free).",
+        source=DataSource.SYSTEM_STATUS,
+        evidence={"mem_used": mem_used, "mem_free": mem_free, "mem_pct": mem_pct},
+    )
+
+
+def _device_detail_signals(
+    hostname: str,
+    bfd_fetch: DataFetchResult,
+    control_fetch: DataFetchResult,
+    status_fetch: DataFetchResult,
+) -> list[HealthSignal]:
+    signals: list[HealthSignal | None] = []
+    if bfd_fetch.success:
+        signals.append(_bfd_detail_signal(hostname, _response_rows(bfd_fetch)))
+    if control_fetch.success:
+        signals.append(_control_detail_signal(hostname, _response_rows(control_fetch)))
+    if status_fetch.success:
+        statuses = _response_rows(status_fetch)
+        if statuses:
+            signals.extend(
+                (_cpu_signal(hostname, statuses[0]), _memory_signal(hostname, statuses[0]))
+            )
+    return [signal for signal in signals if signal is not None]
 
 
 async def assess_device_health(
@@ -372,7 +505,7 @@ async def assess_device_health(
     if not device_fetch.success or not device_fetch.data:
         return None, fetch_results
 
-    devices_raw = device_fetch.data.get("data", [])
+    devices_raw = _response_rows(device_fetch)
     target = next(
         (d for d in devices_raw
          if d.get("system-ip") == system_ip or d.get("deviceId") == system_ip),
@@ -383,99 +516,8 @@ async def assess_device_health(
         return None, fetch_results
 
     dh = compute_device_health(target)
-
-    # Enrich with BFD details
-    if bfd_fetch.success and bfd_fetch.data:
-        sessions = bfd_fetch.data.get("data", [])
-        down_sessions = [s for s in sessions if s.get("state", "").lower() != "up"]
-        if down_sessions:
-            dh.signals.append(HealthSignal(
-                level=HealthLevel.DEGRADED,
-                component=f"device/{dh.hostname}/bfd-detail",
-                summary=f"{len(down_sessions)} BFD session(s) not in up state",
-                detail=(
-                    f"Out of {len(sessions)} BFD sessions, {len(down_sessions)} are not up. "
-                    f"Affected peers: {', '.join(s.get('system-ip', '?') for s in down_sessions[:5])}."
-                ),
-                source=DataSource.BFD_SESSIONS,
-                evidence={
-                    "total": len(sessions),
-                    "down": len(down_sessions),
-                    "down_peers": [s.get("system-ip") for s in down_sessions[:5]],
-                },
-            ))
-
-    # Enrich with control connection details
-    if control_fetch.success and control_fetch.data:
-        connections = control_fetch.data.get("data", [])
-        non_up = [c for c in connections if c.get("state", "").lower() != "up"]
-        if non_up:
-            dh.signals.append(HealthSignal(
-                level=HealthLevel.DEGRADED,
-                component=f"device/{dh.hostname}/control-detail",
-                summary=f"{len(non_up)} control connection(s) not up",
-                detail=(
-                    f"Out of {len(connections)} control connections, {len(non_up)} are not in 'up' state. "
-                    f"Affected peers: {', '.join(c.get('system-ip', '?') for c in non_up[:5])}."
-                ),
-                source=DataSource.CONTROL_CONNECTIONS,
-                evidence={
-                    "total": len(connections),
-                    "not_up": len(non_up),
-                },
-            ))
-
-    # Enrich with system resource checks
-    if status_fetch.success and status_fetch.data:
-        statuses = status_fetch.data.get("data", [])
-        if statuses:
-            s = statuses[0]
-            try:
-                cpu_5 = float(s.get("min5_avg", 0))
-                if cpu_5 > 90:
-                    dh.signals.append(HealthSignal(
-                        level=HealthLevel.CRITICAL,
-                        component=f"device/{dh.hostname}/cpu",
-                        summary=f"CPU load is critically high ({cpu_5:.1f}%)",
-                        detail=f"5-minute CPU average is {cpu_5:.1f}%, which may impact forwarding.",
-                        source=DataSource.SYSTEM_STATUS,
-                        evidence={"cpu_5min": cpu_5},
-                    ))
-                elif cpu_5 > 70:
-                    dh.signals.append(HealthSignal(
-                        level=HealthLevel.DEGRADED,
-                        component=f"device/{dh.hostname}/cpu",
-                        summary=f"CPU load is elevated ({cpu_5:.1f}%)",
-                        detail=f"5-minute CPU average is {cpu_5:.1f}%.",
-                        source=DataSource.SYSTEM_STATUS,
-                        evidence={"cpu_5min": cpu_5},
-                    ))
-            except (ValueError, TypeError):
-                pass
-
-            try:
-                mem_used = int(s.get("mem_used", 0))
-                mem_free = int(s.get("mem_free", 1))
-                mem_pct = (mem_used / (mem_used + mem_free)) * 100 if (mem_used + mem_free) > 0 else 0
-                if mem_pct > 90:
-                    dh.signals.append(HealthSignal(
-                        level=HealthLevel.CRITICAL,
-                        component=f"device/{dh.hostname}/memory",
-                        summary=f"Memory usage is critically high ({mem_pct:.0f}%)",
-                        detail=f"Memory usage is {mem_pct:.0f}% ({mem_used} used, {mem_free} free).",
-                        source=DataSource.SYSTEM_STATUS,
-                        evidence={"mem_used": mem_used, "mem_free": mem_free, "mem_pct": mem_pct},
-                    ))
-                elif mem_pct > 80:
-                    dh.signals.append(HealthSignal(
-                        level=HealthLevel.DEGRADED,
-                        component=f"device/{dh.hostname}/memory",
-                        summary=f"Memory usage is elevated ({mem_pct:.0f}%)",
-                        detail=f"Memory usage is {mem_pct:.0f}% ({mem_used} used, {mem_free} free).",
-                        source=DataSource.SYSTEM_STATUS,
-                        evidence={"mem_used": mem_used, "mem_free": mem_free, "mem_pct": mem_pct},
-                    ))
-            except (ValueError, TypeError):
-                pass
+    dh.signals.extend(
+        _device_detail_signals(dh.hostname, bfd_fetch, control_fetch, status_fetch)
+    )
 
     return dh, fetch_results

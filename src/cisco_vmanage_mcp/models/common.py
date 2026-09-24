@@ -1,11 +1,11 @@
 """Shared Pydantic models (pagination, response format)."""
 
-from pydantic import BaseModel, Field, ConfigDict
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class ResponseFormat(str, Enum):
+class ResponseFormat(StrEnum):
     """Output format for tool responses."""
     MARKDOWN = "markdown"
     JSON = "json"
@@ -15,13 +15,13 @@ class PaginationInput(BaseModel):
     """Shared pagination parameters for list operations."""
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    limit: Optional[int] = Field(
+    limit: int | None = Field(
         default=25,
         description="Maximum number of results to return (1-100)",
         ge=1,
         le=100,
     )
-    offset: Optional[int] = Field(
+    offset: int | None = Field(
         default=0,
         description="Number of results to skip for pagination",
         ge=0,

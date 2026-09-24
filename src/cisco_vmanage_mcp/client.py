@@ -8,16 +8,38 @@ Tested against DevNet sandbox-sdwan-2.cisco.com (v20.10.1).
 """
 
 import asyncio
-import httpx
 import logging
 import os
+import ssl
 import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
-# find .env at project root regardless of CWD (walks up from this file)
+import httpx
+from dotenv import dotenv_values, load_dotenv
+
+
+def _load_configuration_environment(project_file: Path) -> Path:
+    """Load external env > private setup file > project dotenv precedence."""
+    external_keys = frozenset(os.environ)
+    load_dotenv(project_file, override=False)
+    config_file = Path(
+        os.getenv(
+            "VMANAGE_CONFIG_FILE",
+            str(Path.home() / ".vmanage-mcp" / "vmanage.env"),
+        )
+    ).expanduser()
+    if config_file.is_file():
+        for name, value in dotenv_values(config_file).items():
+            if name not in external_keys and isinstance(value, str):
+                os.environ[name] = value
+    return config_file
+
+
+# Find configuration regardless of CWD while preserving explicit deployment env.
 _project_root = Path(__file__).resolve().parent.parent.parent
-load_dotenv(_project_root / ".env")
+_config_file = _load_configuration_environment(_project_root / ".env")
 
 logger = logging.getLogger("cisco_vmanage_mcp.client")
 
@@ -26,6 +48,10 @@ logger = logging.getLogger("cisco_vmanage_mcp.client")
 class VManageError(Exception):
     """Base exception for all vManage client errors."""
     pass
+
+
+class ConfigurationError(VManageError):
+    """Raised when client environment configuration is invalid."""
 
 
 class AuthenticationError(VManageError):
@@ -71,6 +97,7 @@ class TimeoutError(VManageError):
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_BACKOFF_BASE = 1.0  # seconds
 _DEFAULT_BACKOFF_MAX = 10.0  # seconds
+_MAX_RETRY_AFTER = 60.0  # seconds
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
@@ -86,21 +113,82 @@ class VManageClient:
     - Concurrency-safe: auth serialised via asyncio.Lock
     """
 
-    def __init__(self):
-        self.host = os.getenv("VMANAGE_HOST", "sandbox-sdwan-2.cisco.com")
-        self.port = os.getenv("VMANAGE_PORT", "443")
-        self.username = os.getenv("VMANAGE_USERNAME")
-        self.password = os.getenv("VMANAGE_PASSWORD")
-        self.verify_ssl = os.getenv("VMANAGE_VERIFY_SSL", "false").lower() == "true"
+    @staticmethod
+    def _parse_boolean(name: str, default: bool) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+        raise ConfigurationError(f"{name} must be either 'true' or 'false'")
+
+    @staticmethod
+    def _parse_max_retries(raw_value: str | int | None = None) -> int:
+        if raw_value is None:
+            raw_value = os.getenv("VMANAGE_MAX_RETRIES", str(_DEFAULT_MAX_RETRIES))
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ConfigurationError("VMANAGE_MAX_RETRIES must be an integer from 0 to 10") from exc
+        if not 0 <= value <= 10:
+            raise ConfigurationError("VMANAGE_MAX_RETRIES must be an integer from 0 to 10")
+        return value
+
+    def __init__(
+        self,
+        *,
+        host: str | None = None,
+        port: str | int | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        verify_ssl: bool | None = None,
+        ca_bundle: str | None = None,
+        max_retries: int | None = None,
+    ) -> None:
+        self.host = host if host is not None else os.getenv(
+            "VMANAGE_HOST", "sandbox-sdwan-2.cisco.com"
+        )
+        configured_port = port if port is not None else os.getenv("VMANAGE_PORT", "443")
+        self.port = str(configured_port)
+        self.username = username if username is not None else os.getenv("VMANAGE_USERNAME")
+        self.password = password if password is not None else os.getenv("VMANAGE_PASSWORD")
+        self.verify_ssl = (
+            verify_ssl
+            if verify_ssl is not None
+            else self._parse_boolean("VMANAGE_VERIFY_SSL", default=True)
+        )
+        self.tls_verify: bool | ssl.SSLContext = self.verify_ssl
+        configured_ca_bundle = (
+            ca_bundle if ca_bundle is not None else os.getenv("VMANAGE_CA_BUNDLE", "")
+        ).strip()
+        if configured_ca_bundle:
+            if not self.verify_ssl:
+                raise VManageError(
+                    "VMANAGE_CA_BUNDLE cannot be used when VMANAGE_VERIFY_SSL=false"
+                )
+            try:
+                self.tls_verify = ssl.create_default_context(
+                    cafile=str(Path(configured_ca_bundle).expanduser())
+                )
+            except OSError as exc:
+                raise VManageError(f"Unable to load VMANAGE_CA_BUNDLE: {exc}") from exc
         self.base_url = f"https://{self.host}:{self.port}"
         self._client: httpx.AsyncClient | None = None
         self._token: str | None = None
         self._auth_lock = asyncio.Lock()
-        self.max_retries = int(os.getenv("VMANAGE_MAX_RETRIES", str(_DEFAULT_MAX_RETRIES)))
+        self.max_retries = self._parse_max_retries(max_retries)
 
         if not self.username or not self.password:
             raise AuthenticationError(
                 "VMANAGE_USERNAME and VMANAGE_PASSWORD must be set in environment or .env file."
+            )
+        if not self.verify_ssl:
+            logger.warning(
+                "TLS certificate verification is disabled. "
+                "Use VMANAGE_VERIFY_SSL=false only in an isolated lab."
             )
 
     async def _ensure_client(self) -> httpx.AsyncClient:
@@ -108,7 +196,7 @@ class VManageClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
-                verify=self.verify_ssl,
+                verify=self.tls_verify,
                 timeout=60.0,
                 follow_redirects=False,
             )
@@ -127,11 +215,16 @@ class VManageClient:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-        except httpx.TimeoutException:
-            raise TimeoutError("Authentication request timed out.")
-        except httpx.ConnectError:
+        except httpx.TimeoutException as exc:
+            raise TimeoutError("Authentication request timed out.") from exc
+        except httpx.ConnectError as exc:
             raise ConnectionError(
                 f"Could not connect to vManage at {self.base_url}."
+            ) from exc
+
+        if login_response.status_code >= 400:
+            raise AuthenticationError(
+                f"vManage authentication failed (HTTP {login_response.status_code})."
             )
 
         if "<html" in login_response.text.lower():
@@ -141,11 +234,14 @@ class VManageClient:
 
         try:
             token_response = await client.get("/dataservice/client/token")
-        except httpx.TimeoutException:
-            raise TimeoutError("XSRF token request timed out.")
+        except httpx.TimeoutException as exc:
+            raise TimeoutError("XSRF token request timed out.") from exc
 
         if token_response.status_code == 200:
-            self._token = token_response.text.strip()
+            token = token_response.text.strip()
+            if not token:
+                raise AuthenticationError("vManage returned an empty XSRF token.")
+            self._token = token
             client.headers["X-XSRF-TOKEN"] = self._token
         else:
             raise AuthenticationError(
@@ -196,15 +292,73 @@ class VManageClient:
             status_code, endpoint,
         )
 
+    @staticmethod
+    def _retry_delay(response: httpx.Response, attempt: int) -> float:
+        """Return exponential backoff, honoring a bounded Retry-After header."""
+        default = min(
+            _DEFAULT_BACKOFF_BASE * (2 ** attempt),
+            _DEFAULT_BACKOFF_MAX,
+        )
+        retry_after = response.headers.get("Retry-After")
+        if not retry_after:
+            return default
+
+        try:
+            delay = float(retry_after)
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=UTC)
+                delay = (retry_at - datetime.now(UTC)).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                return default
+
+        return min(max(delay, 0.0), _MAX_RETRY_AFTER)
+
+    async def _get_with_session_recovery(
+        self,
+        client: httpx.AsyncClient,
+        endpoint: str,
+        params: dict | None,
+        stale_token: str | None,
+    ) -> httpx.Response:
+        response = await client.get(endpoint, params=params)
+        if response.status_code in (302, 401, 403):
+            await self.reauthenticate(stale_token=stale_token)
+            return await client.get(endpoint, params=params)
+        return response
+
+    async def _prepare_response_retry(
+        self,
+        response: httpx.Response,
+        endpoint: str,
+        attempt: int,
+        stale_token: str | None,
+    ) -> VManageAPIError:
+        if response.status_code == 503:
+            try:
+                await self.reauthenticate(stale_token=stale_token)
+            except Exception as exc:
+                logger.debug("Best-effort re-authentication failed: %s", exc)
+        backoff = self._retry_delay(response, attempt)
+        logger.warning(
+            "Retryable error HTTP %d on GET %s (attempt %d/%d, backoff %.1fs)",
+            response.status_code,
+            endpoint,
+            attempt + 1,
+            self.max_retries + 1,
+            backoff,
+        )
+        await asyncio.sleep(backoff)
+        return self._classify_error(response.status_code, endpoint)
+
     async def _request_with_retry(
         self,
-        method: str,
         endpoint: str,
         params: dict | None = None,
-        json_data: dict | None = None,
-        raw: bool = False,
     ) -> httpx.Response:
-        """Execute an HTTP request with retry, backoff, and audit logging."""
+        """Execute a GET request with retry, backoff, and audit logging."""
         from cisco_vmanage_mcp.services.audit import log_api_call
 
         client = await self._ensure_client()
@@ -218,27 +372,14 @@ class VManageClient:
             token_at_request = self._token
             start = time.monotonic()
             try:
-                if method == "GET":
-                    response = await client.get(endpoint, params=params)
-                elif method == "POST":
-                    response = await client.post(endpoint, json=json_data)
-                else:
-                    raise ValueError(f"Unsupported method: {method}")
-
+                response = await self._get_with_session_recovery(
+                    client,
+                    endpoint,
+                    params,
+                    token_at_request,
+                )
                 duration_ms = (time.monotonic() - start) * 1000
-
-                # Re-auth on session expiry (vManage returns 403 for
-                # expired XSRF tokens, not just real permission errors).
-                # Uses compare-and-swap so only one coroutine re-auths.
-                if response.status_code in (302, 401, 403):
-                    await self.reauthenticate(stale_token=token_at_request)
-                    if method == "GET":
-                        response = await client.get(endpoint, params=params)
-                    else:
-                        response = await client.post(endpoint, json=json_data)
-                    duration_ms = (time.monotonic() - start) * 1000
-
-                log_api_call(method, endpoint, response.status_code, duration_ms=duration_ms)
+                log_api_call("GET", endpoint, response.status_code, duration_ms=duration_ms)
 
                 # Success
                 if response.status_code < 400:
@@ -246,49 +387,39 @@ class VManageClient:
 
                 # Retryable server errors
                 if response.status_code in _RETRYABLE_STATUS_CODES and attempt < self.max_retries:
-                    # 503 often means session expired on DevNet sandbox;
-                    # re-authenticate before retrying.
-                    if response.status_code == 503:
-                        try:
-                            await self.reauthenticate(stale_token=token_at_request)
-                        except Exception:
-                            pass  # best-effort re-auth; retry may still work
-                    backoff = min(
-                        _DEFAULT_BACKOFF_BASE * (2 ** attempt),
-                        _DEFAULT_BACKOFF_MAX,
+                    last_error = await self._prepare_response_retry(
+                        response,
+                        endpoint,
+                        attempt,
+                        token_at_request,
                     )
-                    logger.warning(
-                        "Retryable error HTTP %d on %s %s (attempt %d/%d, backoff %.1fs)",
-                        response.status_code, method, endpoint,
-                        attempt + 1, self.max_retries + 1, backoff,
-                    )
-                    await asyncio.sleep(backoff)
-                    last_error = self._classify_error(response.status_code, endpoint)
                     continue
 
                 # Non-retryable error
                 raise self._classify_error(response.status_code, endpoint)
 
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as exc:
                 duration_ms = (time.monotonic() - start) * 1000
-                log_api_call(method, endpoint, error="timeout", duration_ms=duration_ms)
+                log_api_call("GET", endpoint, error="timeout", duration_ms=duration_ms)
                 if attempt < self.max_retries:
                     backoff = min(_DEFAULT_BACKOFF_BASE * (2 ** attempt), _DEFAULT_BACKOFF_MAX)
                     logger.warning(
                         "Timeout on %s %s (attempt %d/%d, backoff %.1fs)",
-                        method, endpoint, attempt + 1, self.max_retries + 1, backoff,
+                        "GET", endpoint, attempt + 1, self.max_retries + 1, backoff,
                     )
                     await asyncio.sleep(backoff)
                     last_error = TimeoutError(f"Request to {endpoint} timed out.")
                     continue
-                raise TimeoutError(f"Request to {endpoint} timed out after {self.max_retries + 1} attempts.")
+                raise TimeoutError(
+                    f"Request to {endpoint} timed out after {self.max_retries + 1} attempts."
+                ) from exc
 
-            except httpx.ConnectError:
+            except httpx.ConnectError as exc:
                 duration_ms = (time.monotonic() - start) * 1000
-                log_api_call(method, endpoint, error="connection_error", duration_ms=duration_ms)
+                log_api_call("GET", endpoint, error="connection_error", duration_ms=duration_ms)
                 raise ConnectionError(
                     f"Could not connect to vManage at {self.base_url}."
-                )
+                ) from exc
 
         # Exhausted retries
         if last_error:
@@ -314,8 +445,15 @@ class VManageClient:
             TimeoutError: On request timeout
             ConnectionError: When vManage is unreachable
         """
-        response = await self._request_with_retry("GET", endpoint, params=params)
-        return response.json()
+        response = await self._request_with_retry(endpoint, params=params)
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise VManageAPIError(
+                f"vManage returned invalid JSON from GET {endpoint}",
+                response.status_code,
+                endpoint,
+            ) from exc
 
     async def get_raw(self, endpoint: str, params: dict | None = None) -> str:
         """Make authenticated GET request returning raw text.
@@ -329,29 +467,16 @@ class VManageClient:
         Returns:
             Raw response text
         """
-        response = await self._request_with_retry("GET", endpoint, params=params, raw=True)
+        response = await self._request_with_retry(endpoint, params=params)
         return response.text
-
-    async def post(self, endpoint: str, json_data: dict | None = None) -> dict:
-        """Make authenticated POST request to vManage API.
-
-        Args:
-            endpoint: API path
-            json_data: Request body as dict
-
-        Returns:
-            Parsed JSON response body
-        """
-        response = await self._request_with_retry("POST", endpoint, json_data=json_data)
-        return response.json()
 
     async def close(self) -> None:
         """Close the HTTP client and invalidate the session."""
         if self._client:
             try:
                 await self._client.get("/logout")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("vManage logout failed: %s", exc)
             await self._client.aclose()
             self._client = None
             self._token = None

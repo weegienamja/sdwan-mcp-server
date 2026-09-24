@@ -4,37 +4,28 @@ Tests health signals, root-cause analysis, and failure handling using
 mocked vManage API responses. No live API calls needed.
 """
 
-import asyncio
-import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
-from cisco_vmanage_mcp.services.health_check import (
-    DataFetchResult,
-    DataSource,
-    DeviceHealth,
-    FabricHealthReport,
-    HealthLevel,
-    HealthSignal,
-    assess_fabric_health,
-    assess_device_health,
-    compute_alarm_signals,
-    compute_device_health,
-    _parse_bfd_count,
-    _parse_control_count,
-)
+import pytest
+
 from cisco_vmanage_mcp.services.correlation import (
-    CorrelationReport,
     ImpactAssessment,
-    RootCauseHypothesis,
-    SiteStatus,
     _analyze_failure_scope,
     _generate_root_causes,
     _group_by_site,
     correlate_fabric_state,
     diagnose_device,
 )
-
+from cisco_vmanage_mcp.services.health_check import (
+    DataSource,
+    HealthLevel,
+    _parse_bfd_count,
+    _parse_control_count,
+    assess_device_health,
+    assess_fabric_health,
+    compute_alarm_signals,
+    compute_device_health,
+)
 
 # --- Test fixtures: realistic vManage API response data ---
 
@@ -336,7 +327,7 @@ class TestAssessFabricHealth:
         """When alarm fetch times out, report should be partial but still return device data."""
         async def mock_get(endpoint, params=None):
             if "alarm" in endpoint:
-                raise asyncio.TimeoutError()
+                raise TimeoutError()
             return {"data": HEALTHY_FABRIC}
 
         client = AsyncMock()
@@ -345,8 +336,23 @@ class TestAssessFabricHealth:
         report = await assess_fabric_health(client)
         assert report.partial is True
         assert len(report.incomplete_sources) > 0
+        assert report.overall_health == HealthLevel.UNKNOWN
         # Device data should still be populated
         assert len(report.devices) == 6
+
+    @pytest.mark.asyncio
+    async def test_empty_device_inventory_is_unknown(self):
+        client = AsyncMock()
+        client.get = AsyncMock(side_effect=[
+            {"data": []},
+            {"data": NO_ALARMS},
+        ])
+
+        report = await assess_fabric_health(client)
+
+        assert report.overall_health == HealthLevel.UNKNOWN
+        assert report.partial is True
+        assert DataSource.DEVICE_LIST.value in report.incomplete_sources
 
     @pytest.mark.asyncio
     async def test_critical_alarms_produce_signals(self):
@@ -360,6 +366,41 @@ class TestAssessFabricHealth:
         alarm_signals = [s for s in report.signals if s.component == "alarms"]
         assert len(alarm_signals) == 1
         assert alarm_signals[0].level == HealthLevel.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_device_health_enriches_session_and_resource_signals() -> None:
+    responses = {
+        "/dataservice/device": {
+            "data": [_make_device("edge-1", "10.0.0.1")],
+        },
+        "/dataservice/device/bfd/sessions": {
+            "data": [{"state": "down", "system-ip": "10.0.0.2"}],
+        },
+        "/dataservice/device/control/connections": {
+            "data": [{"state": "connecting", "system-ip": "10.0.0.3"}],
+        },
+        "/dataservice/device/system/status": {
+            "data": [{"min5_avg": 95, "mem_used": 95, "mem_free": 5}],
+        },
+    }
+    client = AsyncMock()
+    client.get = AsyncMock(side_effect=lambda endpoint, params=None: responses[endpoint])
+
+    device, fetch_results = await assess_device_health(client, "10.0.0.1")
+
+    assert device is not None
+    assert [signal.component.rsplit("/", 1)[-1] for signal in device.signals[-4:]] == [
+        "bfd-detail",
+        "control-detail",
+        "cpu",
+        "memory",
+    ]
+    assert all(
+        signal.level in {HealthLevel.DEGRADED, HealthLevel.CRITICAL}
+        for signal in device.signals[-4:]
+    )
+    assert all(result.success for result in fetch_results)
 
 
 class TestCorrelateFabricState:
@@ -389,6 +430,7 @@ class TestCorrelateFabricState:
 
         report = await correlate_fabric_state(client)
         assert len(report.root_causes) == 0
+        assert report.impact is not None
         assert report.impact.scope == "none"
 
 
@@ -462,14 +504,14 @@ class TestAuditRedaction:
 class TestExceptionTaxonomy:
     def test_error_hierarchy(self):
         from cisco_vmanage_mcp.client import (
-            VManageError,
             AuthenticationError,
-            VManageAPIError,
-            RateLimitError,
+            ConnectionError,
             NotFoundError,
             PermissionError,
-            ConnectionError,
+            RateLimitError,
             TimeoutError,
+            VManageAPIError,
+            VManageError,
         )
         # All should be subclasses of VManageError
         assert issubclass(AuthenticationError, VManageError)
@@ -491,21 +533,21 @@ class TestExceptionTaxonomy:
 
 class TestHandleApiError:
     def test_handles_authentication_error(self):
-        from cisco_vmanage_mcp.utils.errors import handle_api_error
         from cisco_vmanage_mcp.client import AuthenticationError
+        from cisco_vmanage_mcp.utils.errors import handle_api_error
         result = handle_api_error(AuthenticationError("bad creds"))
         assert "Error:" in result
         assert "VMANAGE_USERNAME" in result
 
     def test_handles_rate_limit(self):
-        from cisco_vmanage_mcp.utils.errors import handle_api_error
         from cisco_vmanage_mcp.client import RateLimitError
+        from cisco_vmanage_mcp.utils.errors import handle_api_error
         result = handle_api_error(RateLimitError("rate limit", 429, "/test"))
         assert "Rate limit" in result
 
     def test_handles_timeout(self):
-        from cisco_vmanage_mcp.utils.errors import handle_api_error
         from cisco_vmanage_mcp.client import TimeoutError
+        from cisco_vmanage_mcp.utils.errors import handle_api_error
         result = handle_api_error(TimeoutError("timed out"))
         assert "timed out" in result
 

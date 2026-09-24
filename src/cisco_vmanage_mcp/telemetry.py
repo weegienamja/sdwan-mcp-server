@@ -4,7 +4,7 @@ Disabled by default. Enable by setting VMANAGE_MCP_TELEMETRY=true.
 
 Collects only:
 - Tool name
-- Anonymous user hash (SHA-256 of username, irreversible)
+- Random installation identifier (not derived from user data)
 - Duration in milliseconds
 - Success or failure boolean
 - Server version
@@ -21,16 +21,23 @@ execution -- all sends are fire-and-forget in a background thread.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import os
-import time
+import secrets
 import threading
-from datetime import datetime, timezone
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime
 from functools import wraps
-from typing import Any, Callable
+from importlib import import_module
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("cisco_vmanage_mcp.telemetry")
+
+INSTALLATION_ID_FILE = Path.home() / ".vmanage-mcp" / "installation-id"
+_EPHEMERAL_INSTALLATION_ID = secrets.token_hex(32)
+_ide_client: Any = None
 
 
 def _is_enabled() -> bool:
@@ -47,10 +54,28 @@ def _get_splunk_config() -> tuple[str, str] | None:
     return None
 
 
-def _anonymous_user_hash() -> str:
-    """Generate irreversible SHA-256 hash of the vManage username."""
-    username = os.getenv("VMANAGE_USERNAME", "unknown")
-    return hashlib.sha256(username.encode("utf-8")).hexdigest()
+def _installation_id() -> str:
+    """Return a random installation ID without deriving it from user data."""
+    try:
+        INSTALLATION_ID_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        INSTALLATION_ID_FILE.parent.chmod(0o700)
+        if INSTALLATION_ID_FILE.exists():
+            existing = INSTALLATION_ID_FILE.read_text(encoding="ascii").strip()
+            if len(existing) == 64 and all(char in "0123456789abcdef" for char in existing):
+                INSTALLATION_ID_FILE.chmod(0o600)
+                return existing
+
+        installation_id = secrets.token_hex(32)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(INSTALLATION_ID_FILE, flags, 0o600)
+        try:
+            os.fchmod(descriptor, 0o600)
+            os.write(descriptor, (installation_id + "\n").encode("ascii"))
+        finally:
+            os.close(descriptor)
+        return installation_id
+    except OSError:
+        return _EPHEMERAL_INSTALLATION_ID
 
 
 def _get_version() -> str:
@@ -70,11 +95,11 @@ def _build_event(
     """Build a telemetry event payload."""
     return {
         "tool_name": tool_name,
-        "user_hash": _anonymous_user_hash(),
+        "installation_id": _installation_id(),
         "duration_ms": round(duration_ms, 2),
         "success": success,
         "server_version": _get_version(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -182,3 +207,64 @@ def track_telemetry(tool_name: str | None = None) -> Callable:
         return sync_wrapper
 
     return decorator
+
+
+async def initialize_ide_telemetry() -> None:
+    """Initialize Cisco IDE telemetry when explicitly enabled."""
+    global _ide_client
+    if os.getenv("VMANAGE_MCP_IDE_TELEMETRY", "false").lower() != "true":
+        _ide_client = None
+        return
+
+    try:
+        sdk = import_module("ide_telemetry_mcp")
+        config = sdk.TelemetryConfig(
+            mcp_server_name="cisco-vmanage-mcp",
+            mcp_marketplace_id=os.getenv("IDE_MCP_MARKETPLACE_ID"),
+            version=_get_version(),
+            group_name=os.getenv("IDE_TELEMETRY_GROUP"),
+            app_name=os.getenv("IDE_TELEMETRY_APP"),
+        )
+        _ide_client = await sdk.TelemetryClient.get_instance(
+            telemetry_config=config,
+        )
+    except Exception as exc:
+        _ide_client = None
+        logger.warning("Cisco IDE telemetry initialization failed: %s", exc)
+
+
+async def emit_ide_tool_event(
+    tool_name: str,
+    duration_ms: float,
+    success: bool,
+) -> None:
+    """Emit a minimal tool event through the optional Cisco IDE client."""
+    if _ide_client is None:
+        return
+    try:
+        await asyncio.wait_for(
+            _ide_client.send_event(
+                tool_name,
+                {
+                    "durationMs": round(duration_ms, 2),
+                    "success": success,
+                },
+                user_id=None,
+            ),
+            timeout=float(os.getenv("IDE_TELEMETRY_TIMEOUT", "2.0")),
+        )
+    except Exception as exc:
+        logger.debug("Cisco IDE telemetry event failed: %s", exc)
+
+
+async def shutdown_ide_telemetry() -> None:
+    """Close the optional Cisco IDE telemetry client."""
+    global _ide_client
+    client = _ide_client
+    _ide_client = None
+    if client is None:
+        return
+    try:
+        await client.shutdown()
+    except Exception as exc:
+        logger.debug("Cisco IDE telemetry shutdown failed: %s", exc)

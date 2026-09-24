@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cisco-vmanage-mcp-config
+data:
+  VMANAGE_WEB_AUTH_MODE: oidc
+  VMANAGE_WEB_HOST: 0.0.0.0
+  VMANAGE_WEB_PORT: "8765"
+  VMANAGE_WEB_PUBLIC_URL: https://operations.example.com
+  VMANAGE_WEB_ALLOWED_HOSTS: operations.example.com
+  VMANAGE_WEB_OIDC_ISSUER: https://identity.example.com/tenant
+  VMANAGE_WEB_OIDC_AUDIENCE: cisco-vmanage-mcp
+  VMANAGE_WEB_OIDC_JWKS_URL: https://identity.example.com/tenant/discovery/keys
+  VMANAGE_WEB_TENANT_ID: replace-with-customer-tenant
+  VMANAGE_WEB_TRUSTED_PROXY_IPS: 192.0.2.10/32
+  VMANAGE_WEB_OIDC_OWNER_ROLES: vmanage-owner
+  VMANAGE_WEB_OIDC_OPERATOR_ROLES: vmanage-operator
+  VMANAGE_WEB_OIDC_VIEWER_ROLES: vmanage-viewer
+  VMANAGE_WEB_STATE_DIR: /var/lib/cisco-vmanage-mcp
+  VMANAGE_VERIFY_SSL: "true"
+  VMANAGE_PORT: "443"
+  AUDIT_STDERR: "true"
+  VMANAGE_MCP_TELEMETRY: "false"
+  VMANAGE_MCP_IDE_TELEMETRY: "false"

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re as _re
 import sys
 import time
 from pathlib import Path
@@ -43,6 +44,12 @@ CISCO_GREEN = "\033[38;5;48m"
 
 def _c(text: str, color: str) -> str:
     return f"{color}{text}{RESET}"
+
+
+def _clear_screen() -> None:
+    """Clear an ANSI-compatible terminal without invoking a shell."""
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
 
 
 # ── ASCII Banner ──────────────────────────────────────────────────────────────
@@ -102,13 +109,13 @@ def _step_warn(message: str, detail: str = "") -> None:
 
 def _suppress_noisy_logs():
     """Suppress [AUDIT] and client retry log output from polluting the console UI.
-    
+
     Must be called after first API call triggers audit module import,
     or we pre-import it here to ensure the logger exists.
     """
     # Force the audit module to load so its logger is initialized
     import cisco_vmanage_mcp.services.audit  # noqa: F401
-    
+
     # Suppress all cisco_vmanage_mcp loggers that write to stderr/stdout
     for logger_name in ("cisco_vmanage_mcp.audit", "cisco_vmanage_mcp.client", "cisco_vmanage_mcp"):
         _logger = logging.getLogger(logger_name)
@@ -116,8 +123,9 @@ def _suppress_noisy_logs():
             h for h in _logger.handlers
             if not isinstance(h, logging.StreamHandler) or h.stream not in (sys.stderr, sys.stdout)
         ]
-        _logger.setLevel(logging.CRITICAL)
-    
+        if logger_name != "cisco_vmanage_mcp.audit":
+            _logger.setLevel(logging.CRITICAL)
+
     # Also suppress the root logger's stream handlers to catch any leaks
     root = logging.getLogger()
     root.handlers = [
@@ -166,6 +174,81 @@ async def _ensure_authenticated():
     return client
 
 
+def _show_environment_status() -> bool:
+    _spin_print("Loading environment...")
+    host = os.getenv("VMANAGE_HOST", "")
+    username = os.getenv("VMANAGE_USERNAME", "")
+    if host:
+        detail = f"{username}@{host}" if username else host
+        _step_ok("Environment loaded", detail)
+        return True
+    _step_fail("No VMANAGE_HOST configured")
+    print(f"\n    {YELLOW}Set environment variables or create a .env file:{RESET}")
+    print(f"    {DIM}VMANAGE_HOST=your-vmanage.example.com{RESET}")
+    print(f"    {DIM}VMANAGE_USERNAME=admin{RESET}")
+    print(f"    {DIM}VMANAGE_PASSWORD=yourpassword{RESET}\n")
+    return False
+
+
+def _connect_with_retries() -> dict:
+    global _shared_client
+
+    info = {"connected": False}
+    for attempt in range(1, 4):
+        suffix = f" (attempt {attempt}/3)" if attempt > 1 else ""
+        _spin_print(f"Testing connectivity{suffix}...")
+        info = _run(_test_connection())
+        if info["connected"]:
+            _step_ok("Connected to vManage", f"{info['response_ms']}ms")
+            return info
+        if attempt < 3:
+            _shared_client = None
+            time.sleep(2 * attempt)
+    _step_fail("Connection failed", str(info.get("error", "")))
+    _step_warn("Continuing in offline mode — commands will retry when you run them")
+    return info
+
+
+def _add_fabric_boot_status(info: dict) -> None:
+    if not info.get("connected"):
+        return
+    _spin_print("Discovering fabric...")
+    fabric = _run(_discover_fabric())
+    if fabric["success"]:
+        _step_ok(
+            "Fabric discovered",
+            f"{fabric['device_count']} devices across {fabric['site_count']} sites",
+        )
+        if fabric.get("unreachable", 0) > 0:
+            _step_warn(
+                f"{fabric['unreachable']} device(s) unreachable",
+                "run 'devices' or 'health' for details",
+            )
+    else:
+        _step_warn("Fabric discovery partial", fabric.get("error", ""))
+    info.update(fabric)
+
+
+def _add_alarm_boot_status(info: dict) -> None:
+    if not info.get("connected"):
+        return
+    _spin_print("Checking alarms...")
+    alarm_info = _run(_check_alarms())
+    if not alarm_info["success"]:
+        _step_warn("Alarm check skipped", alarm_info.get("error", ""))
+        info.update(alarm_info)
+        return
+    count = alarm_info["count"]
+    critical = alarm_info.get("critical", 0)
+    if critical > 0:
+        _step_warn(f"{count} active alarms", f"{RED}{critical} critical{RESET}")
+    elif count > 0:
+        _step_ok(f"{count} active alarms", "none critical")
+    else:
+        _step_ok("No active alarms")
+    info.update(alarm_info)
+
+
 def _boot_sequence() -> dict:
     """Run the animated startup boot sequence. Returns connection info."""
     from cisco_vmanage_mcp import __version__
@@ -176,77 +259,13 @@ def _boot_sequence() -> dict:
     print(f"    {DIM}v{__version__}{RESET}")
     print()
 
-    # Step 1: Environment
-    _spin_print("Loading environment...")
-    host = os.getenv("VMANAGE_HOST", "")
-    username = os.getenv("VMANAGE_USERNAME", "")
-    if host and username:
-        _step_ok("Environment loaded", f"{username}@{host}")
-    elif host:
-        _step_ok("Environment loaded", f"{host}")
-    else:
-        _step_fail("No VMANAGE_HOST configured")
-        print(f"\n    {YELLOW}Set environment variables or create a .env file:{RESET}")
-        print(f"    {DIM}VMANAGE_HOST=your-vmanage.example.com{RESET}")
-        print(f"    {DIM}VMANAGE_USERNAME=admin{RESET}")
-        print(f"    {DIM}VMANAGE_PASSWORD=yourpassword{RESET}")
-        print()
+    if not _show_environment_status():
         return {"connected": False}
 
-    # Step 2: Connectivity (authenticates the shared client once)
-    # DevNet sandbox often returns 503 transiently — retry up to 3 times
-    info = {"connected": False}
-    for attempt in range(1, 4):
-        _spin_print(f"Testing connectivity{f' (attempt {attempt}/3)' if attempt > 1 else ''}...")
-        info = _run(_test_connection())
-        if info["connected"]:
-            _step_ok("Connected to vManage", f"{info['response_ms']}ms")
-            break
-        if attempt < 3:
-            # Reset shared client so next attempt gets a fresh session
-            global _shared_client
-            _shared_client = None
-            time.sleep(2 * attempt)
-    if not info["connected"]:
-        _step_fail("Connection failed", info.get("error", ""))
-        _step_warn("Continuing in offline mode — commands will retry when you run them")
+    info = _connect_with_retries()
+    _add_fabric_boot_status(info)
+    _add_alarm_boot_status(info)
 
-    # Step 3: Loading fabric (reuses same session) — skip if not connected
-    if info.get("connected"):
-        _spin_print("Discovering fabric...")
-        fabric = _run(_discover_fabric())
-        if fabric["success"]:
-            _step_ok(
-                "Fabric discovered",
-                f"{fabric['device_count']} devices across {fabric['site_count']} sites",
-            )
-            if fabric.get("unreachable", 0) > 0:
-                _step_warn(
-                    f"{fabric['unreachable']} device(s) unreachable",
-                    "run 'devices' or 'health' for details",
-                )
-        else:
-            _step_warn("Fabric discovery partial", fabric.get("error", ""))
-        info.update(fabric)
-
-    # Step 4: Alarm check (reuses same session) — skip if not connected
-    if info.get("connected"):
-        _spin_print("Checking alarms...")
-        alarm_info = _run(_check_alarms())
-        if alarm_info["success"]:
-            count = alarm_info["count"]
-            critical = alarm_info.get("critical", 0)
-            if critical > 0:
-                _step_warn(f"{count} active alarms", f"{RED}{critical} critical{RESET}")
-            elif count > 0:
-                _step_ok(f"{count} active alarms", "none critical")
-            else:
-                _step_ok("No active alarms")
-        else:
-            _step_warn("Alarm check skipped", alarm_info.get("error", ""))
-        info.update(alarm_info)
-
-    # Step 5: Ready
     print()
     _step_ok(f"{BOLD}System ready{RESET}")
     print()
@@ -312,9 +331,7 @@ HELP_TEXT = f"""
 PROMPT = f"{CISCO_BLUE}vmanage{RESET}{DIM}:{RESET}{CISCO_GREEN}~{RESET}{BOLD}${RESET} "
 
 
-# ── Natural language intent matching ─────────────────────────────────────────
-
-import re as _re
+# ── Natural language intent matching ────────────────────────────────────────
 
 _INTENT_PATTERNS: list[tuple[str, str]] = [
     # Help / capabilities
@@ -378,6 +395,87 @@ def _is_exact_command(text: str) -> tuple[str | None, list[str]]:
     return None, []
 
 
+def _read_shell_input(ai_provider=None) -> tuple[bool, str]:
+    try:
+        prompt = f"{CISCO_BLUE}you{RESET}{BOLD}:{RESET} " if ai_provider else PROMPT
+        return True, input(prompt).strip()
+    except (KeyboardInterrupt, EOFError):
+        print(f"\n\n    {DIM}Goodbye.{RESET}\n")
+        return False, ""
+
+
+def _handle_universal_command(command: str) -> str:
+    if command in ("exit", "quit", "q"):
+        print(f"\n    {DIM}Goodbye.{RESET}\n")
+        return "exit"
+    if command == "clear":
+        _clear_screen()
+        return "handled"
+    if command == "help":
+        print(HELP_TEXT)
+        return "handled"
+    return "unhandled"
+
+
+def _handle_ai_management(command: str, ai_provider=None) -> tuple[bool, object | None]:
+    if command == "ai" and not ai_provider:
+        from cisco_vmanage_mcp.ai_providers import login_flow
+
+        provider = login_flow()
+        if provider:
+            print(f"\n    {DIM}Ask anything about your network.{RESET}\n")
+        else:
+            print(f"\n    {DIM}No AI connected. Using manual commands.{RESET}\n")
+        return True, provider
+    if command != "switch":
+        return False, ai_provider
+
+    from cisco_vmanage_mcp.ai_providers import (
+        _delete_saved_api_key,
+        _load_config,
+        _save_config,
+        login_flow,
+    )
+
+    config = _load_config()
+    if saved_provider := config.get("provider"):
+        _delete_saved_api_key(saved_provider)
+    config.pop("provider", None)
+    _save_config(config)
+    provider = login_flow()
+    if provider:
+        print()
+        return True, provider
+    return True, ai_provider
+
+
+def _run_ai_prompt(ai_provider, raw: str) -> None:
+    try:
+        print()
+        response = ai_provider.chat(raw)
+        for line in response.split("\n"):
+            print(f"    {line}")
+        print()
+    except KeyboardInterrupt:
+        print(f"\n    {DIM}(cancelled){RESET}\n")
+    except Exception as exc:
+        print(f"\n    {RED}AI error:{RESET} {exc}\n")
+
+
+def _run_manual_prompt(raw: str) -> None:
+    command, arguments = _match_intent(raw)
+    manual_commands = {"status", "devices", "health", "alarms", "smoke-test", "diagnose"}
+    if command in manual_commands:
+        first_word = raw.split()[0].lower()
+        if first_word != command:
+            print(f"    {DIM}→ running: {command}{RESET}")
+        _run_cli_command(command, arguments)
+        return
+    print(f"\n    {YELLOW}I don't understand that.{RESET}")
+    print(f"    {DIM}Type 'ai' to connect an AI for natural conversation, or use a command:{RESET}")
+    print(HELP_TEXT)
+
+
 def _run_shell(ai_provider=None) -> None:
     """Run the interactive command shell, optionally with AI conversation."""
     if ai_provider:
@@ -389,86 +487,33 @@ def _run_shell(ai_provider=None) -> None:
     print()
 
     while True:
-        try:
-            if ai_provider:
-                raw = input(f"{CISCO_BLUE}you{RESET}{BOLD}:{RESET} ").strip()
-            else:
-                raw = input(PROMPT).strip()
-        except (KeyboardInterrupt, EOFError):
-            print(f"\n\n    {DIM}Goodbye.{RESET}\n")
+        keep_running, raw = _read_shell_input(ai_provider)
+        if not keep_running:
             break
-
         if not raw:
             continue
 
         lower = raw.lower().strip()
-
-        # Universal commands
-        if lower in ("exit", "quit", "q"):
-            print(f"\n    {DIM}Goodbye.{RESET}\n")
+        command_state = _handle_universal_command(lower)
+        if command_state == "exit":
             break
-        elif lower == "clear":
-            os.system("clear" if os.name != "nt" else "cls")
-            continue
-        elif lower == "help":
-            print(HELP_TEXT)
+        if command_state == "handled":
             continue
 
-        # AI management commands
-        if lower == "ai" and not ai_provider:
-            from cisco_vmanage_mcp.ai_providers import login_flow
-            ai_provider = login_flow()
-            if ai_provider:
-                print(f"\n    {DIM}Ask anything about your network.{RESET}\n")
-            else:
-                print(f"\n    {DIM}No AI connected. Using manual commands.{RESET}\n")
-            continue
-        elif lower == "switch":
-            from cisco_vmanage_mcp.ai_providers import login_flow, _save_config, _load_config
-            # Clear saved provider so login_flow shows the full picker
-            cfg = _load_config()
-            cfg.pop("provider", None)
-            cfg.pop("api_key", None)
-            _save_config(cfg)
-            new_provider = login_flow()
-            if new_provider:
-                ai_provider = new_provider
-                print()
+        handled, ai_provider = _handle_ai_management(lower, ai_provider)
+        if handled:
             continue
 
-        # If exact command typed (e.g. "devices", "alarms", "diagnose 10.10.1.11")
-        # → run directly for speed, regardless of AI mode
         exact_cmd, exact_args = _is_exact_command(raw)
         if exact_cmd and exact_cmd != "help":
             _run_cli_command(exact_cmd, exact_args)
             continue
 
-        # If AI is connected → send everything else to the AI
         if ai_provider:
-            try:
-                print()
-                response = ai_provider.chat(raw)
-                for line in response.split("\n"):
-                    print(f"    {line}")
-                print()
-            except KeyboardInterrupt:
-                print(f"\n    {DIM}(cancelled){RESET}\n")
-            except Exception as e:
-                print(f"\n    {RED}AI error:{RESET} {e}\n")
+            _run_ai_prompt(ai_provider, raw)
             continue
 
-        # No AI connected → fall back to NLP pattern matcher
-        cmd, args = _match_intent(raw)
-        if cmd and cmd in ("status", "devices", "health", "alarms", "smoke-test", "diagnose"):
-            first_word = raw.split()[0].lower()
-            if first_word != cmd:
-                print(f"    {DIM}→ running: {cmd}{RESET}")
-            _run_cli_command(cmd, args)
-        else:
-            print(f"\n    {YELLOW}I don't understand that.{RESET}")
-            if not ai_provider:
-                print(f"    {DIM}Type 'ai' to connect an AI for natural conversation, or use a command:{RESET}")
-            print(HELP_TEXT)
+        _run_manual_prompt(raw)
 
 
 def _run_cli_command(cmd: str, args: list[str]) -> None:
@@ -655,39 +700,34 @@ def _cmd_diagnose(system_ip: str):
         client = await _ensure_authenticated()
         return await diagnose_device(client, system_ip)
 
-    report = _run(_do())
+    report, device = _run(_do())
     sys.stdout.write(CLEAR_LINE)
 
-    if hasattr(report, "device") and report.device:
-        d = report.device
-        health = d.overall_health.value.upper()
+    if device:
+        health = device.overall_health.value.upper()
         health_color = GREEN if health == "HEALTHY" else YELLOW if health == "DEGRADED" else RED
 
-        print(f"    {BOLD}Device Diagnosis:{RESET} {d.hostname} ({d.system_ip})")
+        print(f"    {BOLD}Device Diagnosis:{RESET} {device.hostname} ({device.system_ip})")
         print(f"    {'─' * 50}")
-        print(f"    Site:          {d.site_id}")
-        reachable_str = f"{GREEN}Yes{RESET}" if d.reachable else f"{RED}No{RESET}"
+        print(f"    Site:          {device.site_id}")
+        reachable_str = f"{GREEN}Yes{RESET}" if device.reachable else f"{RED}No{RESET}"
         print(f"    Reachable:     {reachable_str}")
         print(f"    Health:        {health_color}{health}{RESET}")
-        print(f"    BFD Sessions:  {d.bfd_sessions}")
-        print(f"    Control Conns: {d.control_connections}")
-    elif hasattr(report, "narrative") and report.narrative:
-        print(f"    {report.narrative}")
+        print(f"    BFD Sessions:  {device.bfd_sessions}")
+        print(f"    Control Conns: {device.control_connections}")
     else:
         print(f"    {YELLOW}No device data found.{RESET}")
 
-    if hasattr(report, "is_isolated"):
-        scope = "isolated incident" if report.is_isolated else "part of wider failure pattern"
-        scope_color = CYAN if report.is_isolated else RED
-        print(f"    Failure Scope: {scope_color}{scope}{RESET}")
+    if report.impact:
+        print(f"    Failure Scope: {CYAN}{report.impact.scope}{RESET}")
 
-    if hasattr(report, "root_causes") and report.root_causes:
+    if report.root_causes:
         print(f"\n    {BOLD}Root-Cause Hypotheses:{RESET}")
         for rc in report.root_causes:
             conf_color = RED if rc.confidence == "high" else YELLOW if rc.confidence == "medium" else DIM
             print(f"    {rc.rank}. {rc.hypothesis}  {conf_color}[{rc.confidence}]{RESET}")
 
-    if hasattr(report, "narrative") and report.narrative and hasattr(report, "device") and report.device:
+    if report.narrative:
         print(f"\n    {DIM}{report.narrative}{RESET}")
 
 
@@ -735,7 +775,7 @@ def _cmd_smoke_test():
 def main():
     """Launch the interactive vManage console."""
     # Clear screen for fresh start
-    os.system("clear" if os.name != "nt" else "cls")
+    _clear_screen()
 
     info = _boot_sequence()
 
@@ -745,7 +785,7 @@ def main():
         print()
 
     # Wire shared runtime into AI providers so tool calls reuse our loop + client
-    from cisco_vmanage_mcp.ai_providers import set_app_runtime, auto_connect, login_flow
+    from cisco_vmanage_mcp.ai_providers import auto_connect, login_flow, set_app_runtime
     set_app_runtime(_run, _ensure_authenticated)
 
     # Auto-connect using saved credentials or env var API keys (no prompts)
@@ -766,8 +806,10 @@ def main():
         if _shared_client is not None:
             try:
                 _get_loop().run_until_complete(_shared_client.close())
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger("cisco_vmanage_mcp.app").debug(
+                    "Failed to close shared client: %s", exc
+                )
 
 
 if __name__ == "__main__":

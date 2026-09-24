@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "summary": {
+    "sites": 2,
+    "controllers": 1,
+    "edges": 2,
+    "tlocs": 2,
+    "tunnels": 1,
+    "control_links": 1,
+    "unreachable": 1
+  },
+  "node_ids": [
+    "device:10.0.0.1",
+    "device:10.0.0.10",
+    "device:10.0.0.2",
+    "site:100",
+    "site:200",
+    "tloc:10.0.0.1:biz-internet:192.0.2.1",
+    "tloc:10.0.0.2:mpls:192.0.2.2"
+  ],
+  "edge_ids": [
+    "bfd:tloc:10.0.0.1:biz-internet:192.0.2.1:tloc:10.0.0.2:mpls:192.0.2.2",
+    "control:device:10.0.0.1:device:10.0.0.10",
+    "membership:site:100:device:10.0.0.1",
+    "membership:site:200:device:10.0.0.2",
+    "ownership:device:10.0.0.1:tloc:10.0.0.1:biz-internet:192.0.2.1",
+    "ownership:device:10.0.0.2:tloc:10.0.0.2:mpls:192.0.2.2"
+  ],
+  "statuses": {
+    "device:10.0.0.1": "critical",
+    "device:10.0.0.10": "healthy",
+    "device:10.0.0.2": "healthy",
+    "site:100": "critical",
+    "site:200": "healthy",
+    "tloc:10.0.0.1:biz-internet:192.0.2.1": "critical",
+    "tloc:10.0.0.2:mpls:192.0.2.2": "critical"
+  }
+}

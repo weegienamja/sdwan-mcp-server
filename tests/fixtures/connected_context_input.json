@@ -1,0 +1,78 @@
+{
+  "devices": [
+    {
+      "host-name": "vsmart-1",
+      "system-ip": "10.0.0.10",
+      "device-type": "vsmart",
+      "device-model": "vsmart",
+      "reachability": "reachable",
+      "site-id": "1",
+      "state": "green"
+    },
+    {
+      "host-name": "edge-1",
+      "system-ip": "10.0.0.1",
+      "device-type": "vedge",
+      "device-model": "C8000V",
+      "reachability": "unreachable",
+      "site-id": "100",
+      "state": "red"
+    },
+    {
+      "host-name": "edge-2",
+      "system-ip": "10.0.0.2",
+      "device-type": "vedge",
+      "device-model": "C8000V",
+      "reachability": "reachable",
+      "site-id": "200",
+      "state": "green"
+    }
+  ],
+  "bfd_sessions": {
+    "10.0.0.1": [
+      {
+        "system-ip": "10.0.0.2",
+        "state": "down",
+        "src-ip": "192.0.2.1",
+        "dst-ip": "192.0.2.2",
+        "local-color": "biz-internet",
+        "color": "mpls"
+      }
+    ]
+  },
+  "control_connections": {
+    "10.0.0.1": [
+      {
+        "peer-type": "vsmart",
+        "system-ip": "10.0.0.10",
+        "state": "up"
+      }
+    ]
+  },
+  "alarms": [
+    {
+      "severity": "Critical",
+      "type": "Control connection",
+      "host-name": "edge-1",
+      "system-ip": "10.0.0.1",
+      "entry_time": 1700000000000,
+      "message": "Control connection changed"
+    }
+  ],
+  "events": [
+    {
+      "severity_level": "Major",
+      "eventname": "control-connection-down",
+      "host_name": "edge-1",
+      "system_ip": "10.0.0.1",
+      "entry_time": 1700000001000
+    },
+    {
+      "severity_level": "Major",
+      "eventname": "device-reboot",
+      "host_name": "edge-2",
+      "system_ip": "10.0.0.2",
+      "entry_time": 1700000002000
+    }
+  ]
+}

@@ -1,33 +1,58 @@
 """Alarm and event MCP tools."""
 
 import json
-from typing import Optional
+import time
+
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.server import mcp
-from cisco_vmanage_mcp.models.common import ResponseFormat
-from cisco_vmanage_mcp.utils.formatters import (
-    format_alarm_markdown,
-    format_alarm_count_markdown,
-    format_events_markdown,
-    _safe_str,
-)
+from cisco_vmanage_mcp.services.audit import audit_tool
+from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
+from cisco_vmanage_mcp.utils.formatters import (
+    _safe_str,
+    format_alarm_count_markdown,
+    format_alarm_markdown,
+    format_events_markdown,
+)
+
+
+def _build_event_query(hours_back: int, system_ip: str | None) -> str | None:
+    """Build the vManage GET query used to bound and filter event retrieval."""
+    rules: list[dict] = []
+    if hours_back:
+        rules.append({
+            "value": [str(hours_back)],
+            "field": "entry_time",
+            "type": "date",
+            "operator": "last_n_hours",
+        })
+    if system_ip:
+        rules.append({
+            "value": [system_ip],
+            "field": "system_ip",
+            "type": "string",
+            "operator": "equal",
+        })
+    if not rules:
+        return None
+    return json.dumps(
+        {
+            "query": {"condition": "AND", "rules": rules},
+            "sort": [{"field": "entry_time", "type": "date", "order": "desc"}],
+        },
+        separators=(",", ":"),
+    )
 
 
 @mcp.tool(
     name="vmanage_list_alarms",
-    annotations={
-        "title": "List Active Alarms",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("List Active Alarms"),
 )
+@audit_tool("vmanage_list_alarms")
 async def vmanage_list_alarms(
     ctx: Context,
-    severity: Optional[str] = None,
+    severity: str | None = None,
     hours_back: int = 24,
     limit: int = 25,
     offset: int = 0,
@@ -96,14 +121,9 @@ async def vmanage_list_alarms(
 
 @mcp.tool(
     name="vmanage_get_alarm_count",
-    annotations={
-        "title": "Get Alarm Counts",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get Alarm Counts"),
 )
+@audit_tool("vmanage_get_alarm_count")
 async def vmanage_get_alarm_count(
     ctx: Context,
     response_format: str = "markdown",
@@ -139,18 +159,13 @@ async def vmanage_get_alarm_count(
 
 @mcp.tool(
     name="vmanage_list_events",
-    annotations={
-        "title": "List System Events",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("List System Events"),
 )
+@audit_tool("vmanage_list_events")
 async def vmanage_list_events(
     ctx: Context,
     hours_back: int = 24,
-    system_ip: Optional[str] = None,
+    system_ip: str | None = None,
     limit: int = 25,
     offset: int = 0,
     response_format: str = "markdown",
@@ -162,21 +177,36 @@ async def vmanage_list_events(
     try:
         vmanage = ctx.request_context.lifespan_context["vmanage"]
 
-        query_params: dict = {}
-        if system_ip:
-            query_params["deviceId"] = system_ip
-
-        data = await vmanage.get("/dataservice/event", params=query_params if query_params else None)
+        query = _build_event_query(hours_back, system_ip)
+        data = await vmanage.get(
+            "/dataservice/event",
+            params={"query": query} if query else None,
+        )
 
         events = data.get("data", [])
 
+        if system_ip:
+            events = [
+                event
+                for event in events
+                if event.get("system_ip") == system_ip
+                or event.get("system-ip") == system_ip
+                or event.get("deviceId") == system_ip
+            ]
+
         if hours_back:
-            import time
             cutoff = int(time.time() * 1000) - (hours_back * 3600 * 1000)
             events = [
                 e for e in events
                 if int(e.get("entry_time", e.get("receive_time", 0)) or 0) >= cutoff
             ]
+
+        events.sort(
+            key=lambda event: int(
+                event.get("entry_time", event.get("receive_time", 0)) or 0
+            ),
+            reverse=True,
+        )
 
         total = len(events)
         events = events[offset : offset + limit]
@@ -191,9 +221,9 @@ async def vmanage_list_events(
                     "events": [
                         {
                             "event_name": _safe_str(e.get("eventname", e.get("type"))),
-                            "severity": _safe_str(e.get("severity")),
-                            "hostname": _safe_str(e.get("host-name")),
-                            "system_ip": _safe_str(e.get("system-ip")),
+                            "severity": _safe_str(e.get("severity", e.get("severity_level"))),
+                            "hostname": _safe_str(e.get("host-name", e.get("host_name"))),
+                            "system_ip": _safe_str(e.get("system-ip", e.get("system_ip"))),
                             "entry_time": _safe_str(e.get("entry_time", e.get("receive_time"))),
                         }
                         for e in events

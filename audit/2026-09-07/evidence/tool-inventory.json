@@ -1,0 +1,28 @@
+{
+  "version": "1.1.0",
+  "count": 21,
+  "readOnly": true,
+  "tools": [
+    "vmanage_list_devices",
+    "vmanage_get_device_status",
+    "vmanage_get_device_counters",
+    "vmanage_get_device_interfaces",
+    "vmanage_list_tunnels",
+    "vmanage_get_bfd_sessions",
+    "vmanage_get_omp_peers",
+    "vmanage_list_alarms",
+    "vmanage_get_alarm_count",
+    "vmanage_list_events",
+    "vmanage_list_policies",
+    "vmanage_list_templates",
+    "vmanage_get_running_config",
+    "vmanage_get_system_status",
+    "vmanage_get_control_status",
+    "vmanage_get_fabric_summary",
+    "vmanage_assess_fabric_health",
+    "vmanage_diagnose_device",
+    "vmanage_pre_change_validation",
+    "vmanage_incident_summary",
+    "vmanage_check_version"
+  ]
+}

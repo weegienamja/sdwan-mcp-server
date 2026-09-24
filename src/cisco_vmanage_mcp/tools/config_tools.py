@@ -1,23 +1,20 @@
 """Running config MCP tools."""
 
 import json
+
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.server import mcp
-from cisco_vmanage_mcp.models.common import ResponseFormat
+from cisco_vmanage_mcp.services.audit import audit_tool
+from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
 @mcp.tool(
     name="vmanage_get_running_config",
-    annotations={
-        "title": "Get Running Config",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get Running Config"),
 )
+@audit_tool("vmanage_get_running_config")
 async def vmanage_get_running_config(
     device_uuid: str,
     ctx: Context,

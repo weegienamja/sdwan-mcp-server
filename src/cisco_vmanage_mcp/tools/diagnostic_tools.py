@@ -13,29 +13,22 @@ Each response includes:
 """
 
 import json
-from typing import Optional
+
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
 from cisco_vmanage_mcp.services.correlation import correlate_fabric_state, diagnose_device
 from cisco_vmanage_mcp.services.health_check import (
-    DataSource,
-    HealthLevel,
     assess_fabric_health,
 )
+from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
 @mcp.tool(
     name="vmanage_assess_fabric_health",
-    annotations={
-        "title": "Assess Fabric Health (Correlated)",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Assess Fabric Health (Correlated)"),
 )
 @audit_tool("vmanage_assess_fabric_health")
 async def vmanage_assess_fabric_health(
@@ -128,13 +121,7 @@ async def vmanage_assess_fabric_health(
 
 @mcp.tool(
     name="vmanage_diagnose_device",
-    annotations={
-        "title": "Diagnose Device (Deep Analysis)",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Diagnose Device (Deep Analysis)"),
 )
 @audit_tool("vmanage_diagnose_device")
 async def vmanage_diagnose_device(
@@ -224,13 +211,7 @@ async def vmanage_diagnose_device(
 
 @mcp.tool(
     name="vmanage_pre_change_validation",
-    annotations={
-        "title": "Pre-Change Validation",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Pre-Change Validation"),
 )
 @audit_tool("vmanage_pre_change_validation")
 async def vmanage_pre_change_validation(
@@ -255,6 +236,13 @@ async def vmanage_pre_change_validation(
 
         blockers: list[str] = []
         warnings: list[str] = []
+
+        if report.partial:
+            blockers.append(
+                "Assessment is incomplete; required data sources could not be verified"
+            )
+        if not report.devices:
+            blockers.append("No devices were returned by vManage")
 
         # Check controllers
         controllers = [d for d in report.devices if d.device_type != "vedge"]
@@ -369,13 +357,7 @@ async def vmanage_pre_change_validation(
 
 @mcp.tool(
     name="vmanage_incident_summary",
-    annotations={
-        "title": "Incident Summary",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Incident Summary"),
 )
 @audit_tool("vmanage_incident_summary")
 async def vmanage_incident_summary(
@@ -434,7 +416,7 @@ async def vmanage_incident_summary(
 
             if fab.partial:
                 lines.append(
-                    f"Note: This assessment is partial due to data retrieval failures."
+                    "Note: This assessment is partial due to data retrieval failures."
                 )
 
         else:

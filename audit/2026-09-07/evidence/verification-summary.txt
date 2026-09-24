@@ -1,0 +1,24 @@
+Audit date: 2026-09-07
+Baseline commit: 8bc5eae
+Target version: 1.1.0
+
+PASS  pytest full suite (230 tests)
+PASS  core branch coverage threshold 60% (measured 75.60%)
+PASS  CLI branch coverage threshold 60% (measured 60%)
+PASS  installer branch coverage threshold 60% (measured 86%)
+PASS  interactive console branch coverage threshold 60% (measured 80%)
+PASS  AI provider branch coverage threshold 60% (measured 80%)
+PASS  public model package coverage threshold 95% (measured 100%)
+PASS  ruff check src tests
+PASS  pyright (0 errors, 0 warnings)
+PASS  bandit -c pyproject.toml -r src
+PASS  pip-audit -r requirements.txt (no known vulnerabilities)
+PASS  python -m build
+PASS  twine check dist/*
+PASS  clean-wheel tool count (21) and four entry points
+PASS  MCP stdio initialize/list (version 1.1.0, 21 tools)
+PASS  live DevNet sanitized audit (21 passed, 0 failed)
+PASS  live event GET query applies time/device rules and returns populated normalized fields
+BLOCKED verified DevNet TLS: HydrantID issuing chain not present in available trust sets
+NOT RUN production-like scale/soak: no approved staging environment supplied
+NOT RUN real AI/telemetry egress: local fakes used to avoid transmitting network data

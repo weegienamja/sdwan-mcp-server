@@ -1,29 +1,26 @@
 """System health and fabric summary MCP tools."""
 
 import json
+
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.server import mcp
-from cisco_vmanage_mcp.models.common import ResponseFormat
+from cisco_vmanage_mcp.services.audit import audit_tool
+from cisco_vmanage_mcp.tools import read_only_annotations
+from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
-    format_system_status_markdown,
+    _safe_str,
     format_control_connections_markdown,
     format_fabric_summary_markdown,
-    _safe_str,
+    format_system_status_markdown,
 )
-from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
 @mcp.tool(
     name="vmanage_get_system_status",
-    annotations={
-        "title": "Get System Status",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get System Status"),
 )
+@audit_tool("vmanage_get_system_status")
 async def vmanage_get_system_status(
     system_ip: str,
     ctx: Context,
@@ -71,14 +68,9 @@ async def vmanage_get_system_status(
 
 @mcp.tool(
     name="vmanage_get_control_status",
-    annotations={
-        "title": "Get Control Connections",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get Control Connections"),
 )
+@audit_tool("vmanage_get_control_status")
 async def vmanage_get_control_status(
     system_ip: str,
     ctx: Context,
@@ -126,14 +118,9 @@ async def vmanage_get_control_status(
 
 @mcp.tool(
     name="vmanage_get_fabric_summary",
-    annotations={
-        "title": "Get Fabric Summary",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get Fabric Summary"),
 )
+@audit_tool("vmanage_get_fabric_summary")
 async def vmanage_get_fabric_summary(
     ctx: Context,
     response_format: str = "markdown",

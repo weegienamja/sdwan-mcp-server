@@ -1,7 +1,7 @@
 """Version check MCP tool.
 
-Provides a tool that returns the current server version and checks the public
-GitHub repository for newer tags when it is reachable.
+Provides a tool that returns the current server version and checks
+the wwwin-github repo for newer tags.
 """
 
 from __future__ import annotations
@@ -12,31 +12,29 @@ import re
 
 from mcp.server.fastmcp import Context
 
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp import __version__
+from cisco_vmanage_mcp.server import mcp
+from cisco_vmanage_mcp.services.audit import audit_tool
+from cisco_vmanage_mcp.tools import read_only_annotations
 
 logger = logging.getLogger("cisco_vmanage_mcp.version_tool")
 
-_REPO_API_URL = "https://api.github.com/repos/weegienamja/sdwan-mcp-server/tags"
+_REPO_API_URL = "https://wwwin-github.cisco.com/api/v3/repos/jamiblai/sdwan-mcp-server/tags"
 
 
 async def _fetch_latest_tag() -> str | None:
-    """Fetch the latest version tag from the public GitHub repository."""
+    """Fetch the latest version tag from the wwwin-github repo."""
     try:
         import httpx
-
         async with httpx.AsyncClient(timeout=10.0, verify=True) as client:
-            response = await client.get(
-                _REPO_API_URL,
-                headers={"Accept": "application/vnd.github+json"},
-            )
+            response = await client.get(_REPO_API_URL)
             if response.status_code != 200:
                 return None
             tags = response.json()
             if not tags:
                 return None
-            # Tags are returned newest-first by the GitHub API.
-            # Find the first tag that looks like a version (v1.2.3 or 1.2.3).
+            # Tags are returned newest-first by GitHub API
+            # Find the first tag that looks like a version (v1.2.3 or 1.2.3)
             for tag in tags:
                 name = tag.get("name", "")
                 if re.match(r"^v?\d+\.\d+\.\d+", name):
@@ -57,22 +55,18 @@ def _parse_version(version_str: str) -> tuple[int, ...]:
 
 @mcp.tool(
     name="vmanage_check_version",
-    annotations={
-        "title": "Check Server Version",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Check Server Version"),
 )
+@audit_tool("vmanage_check_version")
 async def vmanage_check_version(
     ctx: Context,
     response_format: str = "markdown",
 ) -> str:
-    """Check the current server version and whether a newer public tag exists.
+    """Check the current cisco-vmanage-mcp server version and whether updates are available.
 
-    Returns the running version and, when the repository is publicly reachable,
-    compares it with the latest release tag.
+    Returns the running version and compares it against the latest release
+    tag in the wwwin-github repository. Use this to verify what server
+    version is deployed.
     """
     current = __version__
     latest = await _fetch_latest_tag()
@@ -84,14 +78,11 @@ async def vmanage_check_version(
         update_available = latest_tuple > current_tuple
 
     if response_format == "json":
-        return json.dumps(
-            {
-                "current_version": current,
-                "latest_version": latest or "unknown",
-                "update_available": update_available,
-            },
-            indent=2,
-        )
+        return json.dumps({
+            "current_version": current,
+            "latest_version": latest or "unknown",
+            "update_available": update_available,
+        }, indent=2)
 
     lines = [
         "## cisco-vmanage-mcp Version",
@@ -102,18 +93,15 @@ async def vmanage_check_version(
     if latest:
         lines.append(f"**Latest:**  v{latest}")
         if update_available:
-            lines.extend(
-                [
-                    "",
-                    "An update is available. Upgrade with:",
-                    "```",
-                    "cd /path/to/sdwan-mcp-server && git pull && pip install -e .",
-                    "```",
-                ]
-            )
+            lines.append("")
+            lines.append("An update is available. Upgrade with:")
+            lines.append("```")
+            lines.append("cd /path/to/cisco-vmanage-mcp && git pull && pip install -e .")
+            lines.append("```")
         else:
-            lines.extend(["", "You are running the latest version."])
+            lines.append("")
+            lines.append("You are running the latest version.")
     else:
-        lines.append("**Latest:**  Could not check public repository tags")
+        lines.append("**Latest:**  Could not check (repository unreachable)")
 
     return "\n".join(lines)

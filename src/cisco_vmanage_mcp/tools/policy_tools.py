@@ -1,29 +1,25 @@
 """Policy and template MCP tools."""
 
 import json
-from typing import Optional
+
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.server import mcp
-from cisco_vmanage_mcp.models.common import ResponseFormat
+from cisco_vmanage_mcp.services.audit import audit_tool
+from cisco_vmanage_mcp.tools import read_only_annotations
+from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
+    _safe_str,
     format_policies_markdown,
     format_templates_markdown,
-    _safe_str,
 )
-from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
 @mcp.tool(
     name="vmanage_list_policies",
-    annotations={
-        "title": "List vSmart Policies",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("List vSmart Policies"),
 )
+@audit_tool("vmanage_list_policies")
 async def vmanage_list_policies(
     ctx: Context,
     limit: int = 25,
@@ -72,17 +68,12 @@ async def vmanage_list_policies(
 
 @mcp.tool(
     name="vmanage_list_templates",
-    annotations={
-        "title": "List Device Templates",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("List Device Templates"),
 )
+@audit_tool("vmanage_list_templates")
 async def vmanage_list_templates(
     ctx: Context,
-    device_type: Optional[str] = None,
+    device_type: str | None = None,
     limit: int = 25,
     offset: int = 0,
     response_format: str = "markdown",

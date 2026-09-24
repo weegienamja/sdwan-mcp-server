@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg
+.env
+.env.local
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+.DS_Store
+.claude/
+
+# Dev/debug scripts (kept locally, not in repo)
+probe_tunnel.py
+probe_tunnels2.py
+test_all_tools.py
+test_connection.py
+test_endpoints.py
+test_protocol.py

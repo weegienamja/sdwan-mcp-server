@@ -14,19 +14,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Optional
 
 from cisco_vmanage_mcp.client import VManageClient
 from cisco_vmanage_mcp.services.health_check import (
-    DataFetchResult,
-    DataSource,
     DeviceHealth,
     FabricHealthReport,
     HealthLevel,
-    HealthSignal,
-    _fetch_with_tracking,
-    _parse_bfd_count,
-    _parse_control_count,
     assess_fabric_health,
 )
 
@@ -108,8 +101,6 @@ def _analyze_failure_scope(
 ) -> ImpactAssessment:
     """Determine whether failure is isolated, site-level, transport-level, or fabric-wide."""
     unreachable = [d for d in devices if not d.reachable]
-    wan_edges = [d for d in devices if d.device_type == "vedge"]
-    controllers = [d for d in devices if d.device_type != "vedge"]
 
     if not unreachable:
         return ImpactAssessment(
@@ -176,113 +167,121 @@ def _analyze_failure_scope(
     )
 
 
+def _device_scope_causes(
+    devices: list[DeviceHealth],
+    unreachable: list[DeviceHealth],
+) -> list[RootCauseHypothesis]:
+    causes: list[RootCauseHypothesis] = []
+    for device in unreachable:
+        if device.bfd_sessions == 0 and device.control_connections == 0:
+            causes.append(RootCauseHypothesis(
+                rank=len(causes) + 1,
+                hypothesis=(
+                    f"{device.hostname} is completely isolated (0 BFD, 0 control connections)"
+                ),
+                confidence="high",
+                supporting_evidence=[
+                    "Device reports 0 BFD sessions and 0 control connections",
+                    "Other devices at sites remain healthy" if len(unreachable) == 1 else "",
+                ],
+                suggested_checks=[
+                    f"Check physical WAN connectivity at site {device.site_id}",
+                    "Verify device power state and hardware health",
+                    "Check transport-facing circuit status with provider",
+                    f"Review recent config changes on {device.hostname}",
+                ],
+            ))
+    wan_edges_with_bfd = [device for device in devices if device.device_type == "vedge" and device.reachable]
+    if wan_edges_with_bfd:
+        causes.append(RootCauseHypothesis(
+            rank=len(causes) + 1,
+            hypothesis="Failure is device-specific, not transport-wide",
+            confidence="medium",
+            supporting_evidence=[
+                f"{len(wan_edges_with_bfd)} other WAN edge(s) maintain full BFD mesh",
+                "If transport were down, multiple devices would be affected",
+            ],
+            suggested_checks=[
+                "Compare tunnel stats between healthy and unhealthy devices",
+                "Check for interface errors on the affected device(s)",
+            ],
+        ))
+    return causes
+
+
+def _site_scope_causes(sites: dict[str, SiteStatus]) -> list[RootCauseHypothesis]:
+    return [
+        RootCauseHypothesis(
+            rank=rank,
+            hypothesis=f"Site {site_id} WAN outage (all {site.device_count} device(s) unreachable)",
+            confidence="high",
+            supporting_evidence=[
+                f"All devices at site {site_id} are unreachable simultaneously",
+                "Other sites maintain connectivity",
+            ],
+            suggested_checks=[
+                f"Check WAN circuit(s) at site {site_id}",
+                "Verify upstream router/switch at the site",
+                f"Contact transport provider for site {site_id} circuit status",
+            ],
+        )
+        for rank, (site_id, site) in enumerate(
+            ((site_id, site) for site_id, site in sites.items() if site.all_unreachable),
+            start=1,
+        )
+    ]
+
+
+def _fabric_scope_causes(unreachable: list[DeviceHealth]) -> list[RootCauseHypothesis]:
+    unreachable_controllers = [device for device in unreachable if device.device_type != "vedge"]
+    if unreachable_controllers:
+        return [RootCauseHypothesis(
+            rank=1,
+            hypothesis="Controller failure causing fabric-wide impact",
+            confidence="high",
+            supporting_evidence=[
+                f"Controller(s) unreachable: "
+                f"{', '.join(device.hostname for device in unreachable_controllers)}",
+                "Controller loss prevents policy/route distribution",
+            ],
+            suggested_checks=[
+                "Check controller infrastructure (vManage/vSmart/vBond)",
+                "Verify data centre connectivity",
+                "Review controller resource usage (CPU, memory, disk)",
+            ],
+        )]
+    return [RootCauseHypothesis(
+        rank=1,
+        hypothesis="Widespread transport failure affecting multiple sites",
+        confidence="medium",
+        supporting_evidence=[
+            f"{len(unreachable)} device(s) unreachable across multiple sites",
+            "Controllers are reachable, ruling out control-plane origin",
+        ],
+        suggested_checks=[
+            "Check common transport provider circuits",
+            "Verify backbone/core connectivity",
+            "Look for correlated alarms across affected sites",
+        ],
+    )]
+
+
 def _generate_root_causes(
     devices: list[DeviceHealth],
     sites: dict[str, SiteStatus],
     impact: ImpactAssessment,
 ) -> list[RootCauseHypothesis]:
     """Generate ordered root-cause hypotheses based on correlation signals."""
-    causes: list[RootCauseHypothesis] = []
-    rank = 1
-
-    unreachable = [d for d in devices if not d.reachable]
+    unreachable = [device for device in devices if not device.reachable]
     if not unreachable:
-        return causes
-
+        return []
     if impact.scope == "device":
-        for d in unreachable:
-            # Device unreachable with 0 BFD and 0 control
-            if d.bfd_sessions == 0 and d.control_connections == 0:
-                causes.append(RootCauseHypothesis(
-                    rank=rank,
-                    hypothesis=f"{d.hostname} is completely isolated (0 BFD, 0 control connections)",
-                    confidence="high",
-                    supporting_evidence=[
-                        f"Device reports 0 BFD sessions and 0 control connections",
-                        f"Other devices at sites remain healthy" if len(unreachable) == 1 else "",
-                    ],
-                    suggested_checks=[
-                        f"Check physical WAN connectivity at site {d.site_id}",
-                        f"Verify device power state and hardware health",
-                        f"Check transport-facing circuit status with provider",
-                        f"Review recent config changes on {d.hostname}",
-                    ],
-                ))
-                rank += 1
-
-        # Check for transport-color-specific failures
-        wan_edges_with_bfd = [d for d in devices if d.device_type == "vedge" and d.reachable]
-        if wan_edges_with_bfd and unreachable:
-            causes.append(RootCauseHypothesis(
-                rank=rank,
-                hypothesis="Failure is device-specific, not transport-wide",
-                confidence="medium",
-                supporting_evidence=[
-                    f"{len(wan_edges_with_bfd)} other WAN edge(s) maintain full BFD mesh",
-                    "If transport were down, multiple devices would be affected",
-                ],
-                suggested_checks=[
-                    "Compare tunnel stats between healthy and unhealthy devices",
-                    "Check for interface errors on the affected device(s)",
-                ],
-            ))
-            rank += 1
-
-    elif impact.scope == "site":
-        for site_id, site in sites.items():
-            if site.all_unreachable:
-                causes.append(RootCauseHypothesis(
-                    rank=rank,
-                    hypothesis=f"Site {site_id} WAN outage (all {site.device_count} device(s) unreachable)",
-                    confidence="high",
-                    supporting_evidence=[
-                        f"All devices at site {site_id} are unreachable simultaneously",
-                        "Other sites maintain connectivity",
-                    ],
-                    suggested_checks=[
-                        f"Check WAN circuit(s) at site {site_id}",
-                        f"Verify upstream router/switch at the site",
-                        f"Contact transport provider for site {site_id} circuit status",
-                    ],
-                ))
-                rank += 1
-
-    elif impact.scope == "fabric-wide":
-        unreachable_controllers = [d for d in unreachable if d.device_type != "vedge"]
-        if unreachable_controllers:
-            causes.append(RootCauseHypothesis(
-                rank=rank,
-                hypothesis="Controller failure causing fabric-wide impact",
-                confidence="high",
-                supporting_evidence=[
-                    f"Controller(s) unreachable: {', '.join(d.hostname for d in unreachable_controllers)}",
-                    "Controller loss prevents policy/route distribution",
-                ],
-                suggested_checks=[
-                    "Check controller infrastructure (vManage/vSmart/vBond)",
-                    "Verify data centre connectivity",
-                    "Review controller resource usage (CPU, memory, disk)",
-                ],
-            ))
-            rank += 1
-        else:
-            causes.append(RootCauseHypothesis(
-                rank=rank,
-                hypothesis="Widespread transport failure affecting multiple sites",
-                confidence="medium",
-                supporting_evidence=[
-                    f"{len(unreachable)} device(s) unreachable across multiple sites",
-                    "Controllers are reachable, ruling out control-plane origin",
-                ],
-                suggested_checks=[
-                    "Check common transport provider circuits",
-                    "Verify backbone/core connectivity",
-                    "Look for correlated alarms across affected sites",
-                ],
-            ))
-            rank += 1
-
-    return causes
+        return _device_scope_causes(devices, unreachable)
+    if impact.scope == "site":
+        return _site_scope_causes(sites)
+    if impact.scope == "fabric-wide":
+        return _fabric_scope_causes(unreachable)
+    return []
 
 
 def _build_narrative(
@@ -304,8 +303,6 @@ def _build_narrative(
         lines.append("")
 
     # Overall status
-    total_devices = len(report.devices)
-    unreachable = [d for d in report.devices if not d.reachable]
     wan_edges = [d for d in report.devices if d.device_type == "vedge"]
     controllers = [d for d in report.devices if d.device_type != "vedge"]
 

@@ -16,12 +16,11 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
+from cisco_vmanage_mcp.client import VManageClient, VManageError
+
 # Load .env from project root
 _project_root = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_project_root / ".env")
-
-from cisco_vmanage_mcp.client import VManageClient, VManageError
-
 
 def _setup_logging(verbose: bool) -> None:
     """Configure logging based on verbosity."""
@@ -98,7 +97,7 @@ def status(ctx):
 
 def _format_status(data: dict) -> str:
     lines = [
-        f"vManage Connection: OK",
+        "vManage Connection: OK",
         f"  Host:        {data['host']}:{data['port']}",
         f"  Devices:     {data['device_count']} total ({data['controllers']} controllers, {data['edges']} edges)",
         f"  Response:    {data['response_time_ms']}ms",
@@ -379,61 +378,57 @@ def diagnose(ctx, system_ip: str):
         _error_exit(str(e), as_json)
 
 
-def _diagnosis_to_dict(report) -> dict:
+def _diagnosis_to_dict(diagnosis_result) -> dict:
     """Convert diagnosis report to JSON-serializable dict."""
+    report, device = diagnosis_result
     result: dict = {
-        "system_ip": report.system_ip if hasattr(report, "system_ip") else "unknown",
+        "system_ip": device.system_ip if device else "unknown",
     }
-    if hasattr(report, "device") and report.device:
-        d = report.device
+    if device:
         result["device"] = {
-            "hostname": d.hostname,
-            "system_ip": d.system_ip,
-            "site_id": d.site_id,
-            "reachable": d.reachable,
-            "health": d.overall_health.value,
-            "bfd_sessions": d.bfd_sessions,
-            "control_connections": d.control_connections,
+            "hostname": device.hostname,
+            "system_ip": device.system_ip,
+            "site_id": device.site_id,
+            "reachable": device.reachable,
+            "health": device.overall_health.value,
+            "bfd_sessions": device.bfd_sessions,
+            "control_connections": device.control_connections,
         }
-    if hasattr(report, "fabric_context") and report.fabric_context:
-        result["fabric_health"] = report.fabric_context.overall_health.value
-    if hasattr(report, "is_isolated"):
-        result["is_isolated"] = report.is_isolated
-    if hasattr(report, "root_causes"):
+    result["fabric_health"] = report.fabric_report.overall_health.value
+    if report.impact:
+        result["failure_scope"] = report.impact.scope
+    if report.root_causes:
         result["root_causes"] = [
             {"hypothesis": rc.hypothesis, "confidence": rc.confidence}
             for rc in report.root_causes
         ]
-    if hasattr(report, "narrative"):
+    if report.narrative:
         result["narrative"] = report.narrative
     return result
 
 
-def _format_diagnosis(report) -> str:
+def _format_diagnosis(diagnosis_result) -> str:
+    report, device = diagnosis_result
     lines = []
-    if hasattr(report, "device") and report.device:
-        d = report.device
-        lines.append(f"Device Diagnosis: {d.hostname} ({d.system_ip})")
-        lines.append(f"  Site:             {d.site_id}")
-        lines.append(f"  Reachable:        {'Yes' if d.reachable else 'No'}")
-        lines.append(f"  Health:           {d.overall_health.value.upper()}")
-        lines.append(f"  BFD Sessions:     {d.bfd_sessions}")
-        lines.append(f"  Control Conns:    {d.control_connections}")
-    elif hasattr(report, "narrative") and report.narrative:
-        lines.append(report.narrative)
+    if device:
+        lines.append(f"Device Diagnosis: {device.hostname} ({device.system_ip})")
+        lines.append(f"  Site:             {device.site_id}")
+        lines.append(f"  Reachable:        {'Yes' if device.reachable else 'No'}")
+        lines.append(f"  Health:           {device.overall_health.value.upper()}")
+        lines.append(f"  BFD Sessions:     {device.bfd_sessions}")
+        lines.append(f"  Control Conns:    {device.control_connections}")
     else:
         lines.append("No device data found.")
 
-    if hasattr(report, "is_isolated"):
-        scope = "isolated" if report.is_isolated else "part of wider failure"
-        lines.append(f"  Failure Scope:    {scope}")
+    if report.impact:
+        lines.append(f"  Failure Scope:    {report.impact.scope}")
 
-    if hasattr(report, "root_causes") and report.root_causes:
+    if report.root_causes:
         lines.append("\nRoot-Cause Hypotheses:")
         for rc in report.root_causes:
             lines.append(f"  {rc.rank}. {rc.hypothesis} (confidence: {rc.confidence})")
 
-    if hasattr(report, "narrative") and report.narrative and hasattr(report, "device") and report.device:
+    if report.narrative:
         lines.append(f"\n{report.narrative}")
 
     return "\n".join(lines)
@@ -495,6 +490,58 @@ def smoke_test(ctx):
             click.echo(f"  [{icon}] {check['check']}{duration}{extra}{error}")
 
     sys.exit(0 if result["overall"] == "pass" else 1)
+
+
+@cli.command()
+@click.option(
+    "--concurrency",
+    type=click.IntRange(1, 10),
+    default=3,
+    show_default=True,
+    help="Maximum concurrent read-only capability probes.",
+)
+@click.pass_context
+def qualify(ctx, concurrency: int) -> None:
+    """Generate a sanitized customer environment compatibility report."""
+    from cisco_vmanage_mcp.services.qualification import qualify_environment
+
+    async def _qualify():
+        client = VManageClient()
+        try:
+            return await qualify_environment(client, concurrency=concurrency)
+        finally:
+            await client.close()
+
+    try:
+        report = _run_async(_qualify())
+    except VManageError as exc:
+        _error_exit(str(exc), ctx.obj["as_json"])
+        return
+    payload = report.model_dump(mode="json")
+    _output(payload, ctx.obj["as_json"], _format_qualification)
+    if not report.ready:
+        raise click.exceptions.Exit(1)
+
+
+def _format_qualification(data: dict) -> str:
+    state = "READY" if data["ready"] else "NOT READY"
+    if data["ready"] and data["partial"]:
+        state = "READY (PARTIAL CAPABILITY SUPPORT)"
+    lines = [
+        f"Customer Environment: {state}",
+        f"  Manager:  {data['manager']}",
+        f"  Devices:  {data['device_count']}",
+        f"  Versions: {', '.join(data['software_versions']) or 'unknown'}",
+        "",
+        "Capabilities:",
+    ]
+    for capability in data["capabilities"]:
+        required = " required" if capability["required"] else ""
+        reason = f" ({capability['reason']})" if capability["reason"] else ""
+        lines.append(
+            f"  [{capability['status']}] {capability['id']}{required}{reason}"
+        )
+    return "\n".join(lines)
 
 
 def _error_exit(message: str, as_json: bool) -> None:

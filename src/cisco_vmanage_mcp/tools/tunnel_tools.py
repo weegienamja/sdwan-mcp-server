@@ -1,29 +1,26 @@
 """Tunnel and BFD session MCP tools."""
 
 import json
+
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.server import mcp
-from cisco_vmanage_mcp.models.common import ResponseFormat
+from cisco_vmanage_mcp.services.audit import audit_tool
+from cisco_vmanage_mcp.tools import read_only_annotations
+from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
-    format_tunnel_table_markdown,
+    _safe_str,
     format_bfd_table_markdown,
     format_omp_peers_markdown,
-    _safe_str,
+    format_tunnel_table_markdown,
 )
-from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
 @mcp.tool(
     name="vmanage_list_tunnels",
-    annotations={
-        "title": "List Device Tunnels",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("List Device Tunnels"),
 )
+@audit_tool("vmanage_list_tunnels")
 async def vmanage_list_tunnels(
     system_ip: str,
     ctx: Context,
@@ -79,14 +76,9 @@ async def vmanage_list_tunnels(
 
 @mcp.tool(
     name="vmanage_get_bfd_sessions",
-    annotations={
-        "title": "Get BFD Sessions",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get BFD Sessions"),
 )
+@audit_tool("vmanage_get_bfd_sessions")
 async def vmanage_get_bfd_sessions(
     system_ip: str,
     ctx: Context,
@@ -139,14 +131,9 @@ async def vmanage_get_bfd_sessions(
 
 @mcp.tool(
     name="vmanage_get_omp_peers",
-    annotations={
-        "title": "Get OMP Peers",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get OMP Peers"),
 )
+@audit_tool("vmanage_get_omp_peers")
 async def vmanage_get_omp_peers(
     system_ip: str,
     ctx: Context,

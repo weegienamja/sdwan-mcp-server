@@ -6,30 +6,62 @@ tool-calling so the AI can query the SD-WAN fabric conversationally.
 
 from __future__ import annotations
 
+import getpass
 import json
+import logging
 import os
 import sys
 import time
+from collections.abc import Awaitable, Callable, Coroutine
+from importlib import import_module
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-# ── SSL / optional custom CA bundle ───────────────────────────────────────────
+logger = logging.getLogger("cisco_vmanage_mcp.ai_providers")
+
+# ── SSL / CA bundle (Cisco Umbrella SSL inspection workaround) ────────────────
 
 def _ca_bundle_path() -> str | None:
-    """Return the path to an optional custom CA bundle, if present."""
-    bundle = Path(__file__).resolve().parent.parent.parent / "certs" / "ca-bundle.pem"
-    if bundle.exists():
+    """Return an explicitly configured CA bundle for optional AI providers."""
+    configured = os.getenv("AI_CA_BUNDLE", "").strip()
+    if not configured:
+        return None
+    if configured != "bundled":
+        bundle = Path(configured).expanduser()
+        if not bundle.is_file():
+            raise FileNotFoundError(f"AI_CA_BUNDLE does not exist: {bundle}")
         return str(bundle)
-    return None
+
+    packaged = files("cisco_vmanage_mcp").joinpath("certs", "ca-bundle.pem")
+    if packaged.is_file():
+        return str(packaged)
+    source_bundle = Path(__file__).resolve().parent.parent.parent / "certs" / "ca-bundle.pem"
+    if source_bundle.is_file():
+        return str(source_bundle)
+    raise FileNotFoundError("The bundled enterprise CA file is unavailable")
 
 
 # ── Shared runtime (set by app.py before tool execution) ─────────────────────
 # These allow AI tool calls to reuse the app's persistent event loop and client.
-_app_run = None       # callable: runs a coroutine on the persistent loop
-_app_client = None    # callable: returns the shared, authenticated VManageClient
+AppRunner = Callable[[Coroutine[Any, Any, Any]], Any]
+ClientGetter = Callable[[], Awaitable[Any]]
 
 
-def set_app_runtime(run_fn, client_fn):
+def _runtime_unavailable(coroutine: Coroutine[Any, Any, Any]) -> Any:
+    coroutine.close()
+    raise RuntimeError("The vManage console runtime has not been initialized")
+
+
+async def _client_unavailable() -> Any:
+    raise RuntimeError("The vManage console runtime has not been initialized")
+
+
+_app_run: AppRunner = _runtime_unavailable
+_app_client: ClientGetter = _client_unavailable
+
+
+def set_app_runtime(run_fn: AppRunner, client_fn: ClientGetter) -> None:
     """Called by app.py to inject the persistent loop runner and client getter."""
     global _app_run, _app_client
     _app_run = run_fn
@@ -39,22 +71,82 @@ def set_app_runtime(run_fn, client_fn):
 
 CONFIG_DIR = Path.home() / ".vmanage-mcp"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+_KEYRING_SERVICE = "cisco-vmanage-mcp"
+
+
+def _get_saved_api_key(provider_name: str) -> str | None:
+    """Load an API key from the OS credential store when available."""
+    try:
+        keyring = import_module("keyring")
+
+        return keyring.get_password(_KEYRING_SERVICE, provider_name)
+    except Exception as exc:
+        logger.debug("OS keyring lookup failed: %s", exc)
+        return None
+
+
+def _store_saved_api_key(provider_name: str, api_key: str) -> bool:
+    """Store an API key in the OS credential store when available."""
+    try:
+        keyring = import_module("keyring")
+
+        keyring.set_password(_KEYRING_SERVICE, provider_name, api_key)
+        return True
+    except Exception as exc:
+        logger.debug("OS keyring write failed: %s", exc)
+        return False
+
+
+def _delete_saved_api_key(provider_name: str) -> None:
+    """Remove an API key from the OS credential store if present."""
+    try:
+        keyring = import_module("keyring")
+
+        keyring.delete_password(_KEYRING_SERVICE, provider_name)
+    except Exception as exc:
+        logger.debug("OS keyring delete failed: %s", exc)
+
+
+def get_saved_api_key(provider_name: str) -> str | None:
+    """Return a provider key from the OS credential store for server-side use."""
+    return _get_saved_api_key(provider_name)
+
+
+def provider_ca_bundle_path() -> str | None:
+    """Return the explicitly configured optional-provider CA bundle."""
+    return _ca_bundle_path()
 
 
 def _load_config() -> dict:
     if CONFIG_FILE.exists():
         try:
-            return json.loads(CONFIG_FILE.read_text())
-        except Exception:
+            config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            legacy_key = config.pop("api_key", None)
+            provider_name = config.get("provider")
+            if legacy_key and provider_name:
+                _store_saved_api_key(provider_name, legacy_key)
+                _save_config(config)
+            return config
+        except Exception as exc:
+            logger.debug("AI config could not be loaded: %s", exc)
             return {}
     return {}
 
 
 def _save_config(config: dict) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(config, indent=2))
-    # Restrict permissions to owner only
-    CONFIG_FILE.chmod(0o600)
+    sanitized = {key: value for key, value in config.items() if key != "api_key"}
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    CONFIG_DIR.chmod(0o700)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(CONFIG_FILE, flags, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            descriptor = -1
+            output.write(json.dumps(sanitized, indent=2) + "\n")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 # ── ANSI ──────────────────────────────────────────────────────────────────────
@@ -147,6 +239,8 @@ TOOL_DEFINITIONS = [
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 ]
+
+MAX_TOOL_ROUNDS = 10
 
 
 # ── Tool execution (calls real vManage) ───────────────────────────────────────
@@ -266,31 +360,32 @@ def _tool_diagnose(system_ip: str) -> str:
         client = await _app_client()
         return await diagnose_device(client, system_ip)
 
-    report = _app_run(_do())
+    report, device = _app_run(_do())
     result: dict[str, Any] = {}
 
-    if hasattr(report, "device") and report.device:
-        d = report.device
+    if device:
         result["device"] = {
-            "hostname": d.hostname,
-            "system_ip": d.system_ip,
-            "site_id": d.site_id,
-            "reachable": d.reachable,
-            "health": d.overall_health.value,
-            "bfd_sessions": d.bfd_sessions,
-            "control_connections": d.control_connections,
+            "hostname": device.hostname,
+            "system_ip": device.system_ip,
+            "site_id": device.site_id,
+            "reachable": device.reachable,
+            "health": device.overall_health.value,
+            "bfd_sessions": device.bfd_sessions,
+            "control_connections": device.control_connections,
         }
 
-    if hasattr(report, "is_isolated"):
-        result["failure_scope"] = "isolated" if report.is_isolated else "widespread"
+    result["fabric_health"] = report.fabric_report.overall_health.value
 
-    if hasattr(report, "root_causes") and report.root_causes:
+    if report.impact:
+        result["failure_scope"] = report.impact.scope
+
+    if report.root_causes:
         result["root_causes"] = [
             {"rank": rc.rank, "hypothesis": rc.hypothesis, "confidence": rc.confidence}
             for rc in report.root_causes
         ]
 
-    if hasattr(report, "narrative") and report.narrative:
+    if report.narrative:
         result["narrative"] = report.narrative
 
     return json.dumps(result) if result else "No diagnostic data available."
@@ -325,17 +420,22 @@ def _tool_smoke() -> str:
             start = time.monotonic()
             data = await client.get("/dataservice/device")
             ms = round((time.monotonic() - start) * 1000)
-            checks.append({"check": "device_api", "pass": True, "ms": ms, "devices": len(data.get("data", []))})
+            checks.append({
+                "check": "device_api",
+                "passed": True,
+                "ms": ms,
+                "devices": len(data.get("data", [])),
+            })
 
             start = time.monotonic()
             await client.get("/dataservice/alarms/count")
             ms = round((time.monotonic() - start) * 1000)
-            checks.append({"check": "alarm_api", "pass": True, "ms": ms})
+            checks.append({"check": "alarm_api", "passed": True, "ms": ms})
         except Exception as e:
-            checks.append({"check": "connection", "pass": False, "error": str(e)})
+            checks.append({"check": "connection", "passed": False, "error": str(e)})
 
     _app_run(_do())
-    return json.dumps({"overall": all(c["pass"] for c in checks), "checks": checks})
+    return json.dumps({"overall": all(c["passed"] for c in checks), "checks": checks})
 
 
 # ── Provider base ─────────────────────────────────────────────────────────────
@@ -348,7 +448,7 @@ class AIProvider:
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.conversation: list[dict] = []
+        self.conversation: list[dict[str, Any]] = []
 
     def chat(self, user_message: str) -> str:
         """Send a message and return the AI's response, executing tools as needed."""
@@ -367,11 +467,11 @@ class ClaudeProvider(AIProvider):
         import httpx
         ca = _ca_bundle_path()
         http_client = httpx.Client(verify=ca) if ca else None
-        self.client = anthropic.Anthropic(api_key=api_key, http_client=http_client)
+        self.client: Any = anthropic.Anthropic(api_key=api_key, http_client=http_client)
         self.model = "claude-sonnet-4-20250514"
-        self._tools = self._convert_tools()
+        self._tools: Any = self._convert_tools()
 
-    def _convert_tools(self) -> list[dict]:
+    def _convert_tools(self) -> list[dict[str, Any]]:
         """Convert tool defs to Anthropic format."""
         tools = []
         for t in TOOL_DEFINITIONS:
@@ -385,7 +485,7 @@ class ClaudeProvider(AIProvider):
     def chat(self, user_message: str) -> str:
         self.conversation.append({"role": "user", "content": user_message})
 
-        while True:
+        for _ in range(MAX_TOOL_ROUNDS):
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
@@ -405,7 +505,7 @@ class ClaudeProvider(AIProvider):
                         sys.stdout.write(f"    {DIM}⚡ querying: {block.name}{RESET}")
                         sys.stdout.flush()
                         result = _exec_tool(block.name, block.input)
-                        sys.stdout.write(f"\r\033[2K")
+                        sys.stdout.write("\r\033[2K")
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,
@@ -417,6 +517,7 @@ class ClaudeProvider(AIProvider):
             # Extract text response
             text_parts = [b.text for b in response.content if hasattr(b, "text")]
             return "\n".join(text_parts) if text_parts else "(No response)"
+        return "Tool call limit reached. Start a new request to continue."
 
 
 # ── GPT (OpenAI) ──────────────────────────────────────────────────────────────
@@ -427,16 +528,16 @@ class OpenAIProvider(AIProvider):
 
     def __init__(self, api_key: str):
         super().__init__(api_key)
-        from openai import OpenAI
         import httpx
+        from openai import OpenAI
         ca = _ca_bundle_path()
         http_client = httpx.Client(verify=ca) if ca else None
-        self.client = OpenAI(api_key=api_key, http_client=http_client)
+        self.client: Any = OpenAI(api_key=api_key, http_client=http_client)
         self.model = "gpt-4o"
-        self._tools = self._convert_tools()
-        self.messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self._tools: Any = self._convert_tools()
+        self.messages: list[Any] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    def _convert_tools(self) -> list[dict]:
+    def _convert_tools(self) -> list[dict[str, Any]]:
         tools = []
         for t in TOOL_DEFINITIONS:
             tools.append({
@@ -452,7 +553,7 @@ class OpenAIProvider(AIProvider):
     def chat(self, user_message: str) -> str:
         self.messages.append({"role": "user", "content": user_message})
 
-        while True:
+        for round_index in range(MAX_TOOL_ROUNDS):
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.messages,
@@ -469,15 +570,19 @@ class OpenAIProvider(AIProvider):
                     sys.stdout.write(f"    {DIM}⚡ querying: {tc.function.name}{RESET}")
                     sys.stdout.flush()
                     result = _exec_tool(tc.function.name, args)
-                    sys.stdout.write(f"\r\033[2K")
+                    sys.stdout.write("\r\033[2K")
                     self.messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "content": result,
                     })
+                if round_index == MAX_TOOL_ROUNDS - 1:
+                    return "Tool call limit reached. Start a new request to continue."
                 continue
 
             return msg.content or "(No response)"
+
+        return "Tool call limit reached. Start a new request to continue."
 
 
 # ── Gemini (Google) ───────────────────────────────────────────────────────────
@@ -494,12 +599,12 @@ class GeminiProvider(AIProvider):
             os.environ.setdefault("SSL_CERT_FILE", ca)
             os.environ.setdefault("REQUESTS_CA_BUNDLE", ca)
         from google import genai
-        self.genai_client = genai.Client(api_key=api_key)
+        self.genai_client: Any = genai.Client(api_key=api_key)
         self.model = "gemini-2.5-flash"
-        self._tools = self._convert_tools()
-        self._chat = None
+        self._tools: Any = self._convert_tools()
+        self._chat: Any = None
 
-    def _convert_tools(self) -> list[dict]:
+    def _convert_tools(self) -> Any:
         from google.genai import types
         declarations = []
         for t in TOOL_DEFINITIONS:
@@ -533,11 +638,10 @@ class GeminiProvider(AIProvider):
                 ),
             )
 
-        response = self._chat.send_message(user_message)
+        response: Any = self._chat.send_message(user_message)
 
         # Handle tool calls in a loop
-        max_rounds = 10
-        for _ in range(max_rounds):
+        for _ in range(MAX_TOOL_ROUNDS):
             # Check for function calls
             fn_calls = []
             for part in response.candidates[0].content.parts:
@@ -554,7 +658,7 @@ class GeminiProvider(AIProvider):
                 sys.stdout.write(f"    {DIM}⚡ querying: {fc.name}{RESET}")
                 sys.stdout.flush()
                 result = _exec_tool(fc.name, args)
-                sys.stdout.write(f"\r\033[2K")
+                sys.stdout.write("\r\033[2K")
                 tool_responses.append(types.Part.from_function_response(
                     name=fc.name,
                     response={"result": result},
@@ -625,86 +729,204 @@ def _check_library(provider_name: str) -> bool:
         return False
 
 
-def auto_connect() -> AIProvider | None:
-    """Silently reconnect using saved config, or prompt if multiple env keys found.
+def _prompt_menu_index(prompt: str, option_count: int) -> int | None:
+    try:
+        choice = input(prompt).strip()
+    except (KeyboardInterrupt, EOFError):
+        return None
+    if choice == "0" or not choice:
+        return None
+    try:
+        index = int(choice) - 1
+    except ValueError:
+        index = -1
+    if not 0 <= index < option_count:
+        print(f"    {RED}Invalid choice.{RESET}")
+        return None
+    return index
 
-    Returns an AIProvider instance or None if no saved/auto credentials found.
-    """
-    # 1. Try saved config
+
+def _available_environment_providers() -> list[tuple[str, dict, str]]:
+    available = []
+    for key, info in PROVIDERS.items():
+        env_key = info.get("env_key", "")
+        api_key = os.getenv(env_key, "")
+        if api_key and not api_key.startswith("YOUR_") and _check_library(key):
+            available.append((key, info, api_key))
+    return available
+
+
+def _resume_saved_login(config: dict) -> tuple[AIProvider | None, bool]:
+    """Return a provider and whether interactive selection should continue."""
+    saved_provider = config.get("provider")
+    saved_key = _get_saved_api_key(saved_provider) if saved_provider else None
+    if not saved_provider or not saved_key:
+        return None, True
+
+    info = PROVIDERS.get(saved_provider, {})
+    print(
+        f"\n    {BOLD}Saved login found:{RESET} "
+        f"{info.get('icon', '')} {info.get('name', saved_provider)}\n"
+    )
+    try:
+        choice = input(f"    Use saved login? {DIM}[Y/n/switch]{RESET} ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return None, False
+    if choice in ("n", "no"):
+        return None, False
+    if choice not in ("", "y", "yes"):
+        return None, True
+    if not _check_library(saved_provider):
+        package = _get_pip_package(saved_provider)
+        print(f"\n    {RED}Missing library.{RESET} Run: {CYAN}pip install {package}{RESET}")
+        return None, False
+    try:
+        provider = create_provider(saved_provider, saved_key)
+    except Exception as exc:
+        print(f"    {RED}✗{RESET} Login failed: {exc}")
+        print(f"    {DIM}Clearing saved credentials...{RESET}")
+        _delete_saved_api_key(saved_provider)
+        config.pop("provider", None)
+        _save_config(config)
+        return None, True
+    print(
+        f"    {GREEN}✓{RESET} Logged in as "
+        f"{info.get('icon', '')} {info.get('name', saved_provider)}"
+    )
+    return provider, False
+
+
+def _select_login_provider() -> tuple[str, dict] | None:
+    print(f"\n    {BOLD}Select AI Provider:{RESET}\n")
+    provider_list = list(PROVIDERS.items())
+    for index, (key, info) in enumerate(provider_list, 1):
+        installed = _check_library(key)
+        status = f"{GREEN}installed{RESET}" if installed else f"{DIM}not installed{RESET}"
+        print(f"    {BOLD}{index}{RESET}  {info['icon']} {info['name']}  {DIM}({status}){RESET}")
+    print(f"\n    {DIM}0  Skip — use manual commands instead{RESET}\n")
+
+    selected = _prompt_menu_index(
+        f"    Select provider {DIM}[1-{len(provider_list)}]{RESET}: ",
+        len(provider_list),
+    )
+    return provider_list[selected] if selected is not None else None
+
+
+def _prompt_provider_key(info: dict) -> str | None:
+    env_key = info.get("env_key", "")
+    existing_key = os.getenv(env_key, "")
+    if existing_key:
+        masked = existing_key[:8] + "..." + existing_key[-4:]
+        print(f"\n    {DIM}Found {env_key} in environment: {masked}{RESET}")
+        try:
+            use_env = input(f"    Use this key? {DIM}[Y/n]{RESET} ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            return None
+        if use_env in ("", "y", "yes"):
+            return existing_key
+
+    print(f"\n    Get your API key from: {CYAN}{info['key_url']}{RESET}\n")
+    try:
+        api_key = getpass.getpass(f"    Enter {info['name']} API key: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return None
+    if not api_key:
+        print(f"    {RED}No key entered.{RESET}")
+        return None
+    return api_key
+
+
+def _validate_save_and_create_provider(
+    provider_key: str,
+    info: dict,
+    api_key: str,
+    config: dict,
+) -> AIProvider | None:
+    print(f"\n    {DIM}Validating API key...{RESET}", end="", flush=True)
+    valid, message = validate_api_key(provider_key, api_key)
+    if not valid:
+        print(f"\r\033[2K    {RED}✗{RESET} {message}")
+        return None
+    print(f"\r\033[2K    {GREEN}✓{RESET} {message}")
+
+    try:
+        save = input(f"    Save login for next time? {DIM}[Y/n]{RESET} ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        save = "n"
+    if save in ("", "y", "yes"):
+        config["provider"] = provider_key
+        _save_config(config)
+        if _store_saved_api_key(provider_key, api_key):
+            print(f"    {DIM}Saved provider preference and API key in the OS keyring{RESET}")
+        else:
+            env_key = info.get("env_key", "")
+            print(
+                f"    {YELLOW}Provider preference saved, but the API key was not saved "
+                f"because no OS keyring is available. Set {env_key} for future sessions.{RESET}"
+            )
+
+    provider = create_provider(provider_key, api_key)
+    print(f"\n    {GREEN}✓{RESET} Ready — {info['icon']} {info['name']}")
+    return provider
+
+
+def auto_connect() -> AIProvider | None:
+    """Reconnect from saved or environment credentials when possible."""
     config = _load_config()
     saved_provider = config.get("provider")
-    saved_key = config.get("api_key")
-
+    saved_key = _get_saved_api_key(saved_provider) if saved_provider else None
     if saved_provider and saved_key and _check_library(saved_provider):
         try:
             provider = create_provider(saved_provider, saved_key)
             info = PROVIDERS.get(saved_provider, {})
-            print(f"    {GREEN}✓{RESET} Connected to {info.get('icon', '')} {info.get('name', saved_provider)}")
+            print(
+                f"    {GREEN}✓{RESET} Connected to "
+                f"{info.get('icon', '')} {info.get('name', saved_provider)}"
+            )
             print(f"    {DIM}Type 'switch' to change provider{RESET}")
             return provider
-        except Exception:
-            pass  # Fall through to env var check
+        except Exception as exc:
+            logger.debug("Saved AI provider could not be initialized: %s", exc)
 
-    # 2. Collect all available providers from env vars
-    available: list[tuple[str, dict, str]] = []  # (key, info, api_key)
-    for key, info in PROVIDERS.items():
-        env_key = info.get("env_key", "")
-        api_key = os.getenv(env_key, "")
-        # Skip placeholder values
-        if api_key and not api_key.startswith("YOUR_") and _check_library(key):
-            available.append((key, info, api_key))
-
+    available = _available_environment_providers()
     if not available:
         return None
-
-    # 3. If only one provider available, auto-connect silently
     if len(available) == 1:
         key, info, api_key = available[0]
         try:
             provider = create_provider(key, api_key)
-            print(f"    {GREEN}✓{RESET} Connected to {info['icon']} {info['name']} {DIM}(from {info['env_key']}){RESET}")
+            print(
+                f"    {GREEN}✓{RESET} Connected to {info['icon']} {info['name']} "
+                f"{DIM}(from {info['env_key']}){RESET}"
+            )
             config["provider"] = key
-            config["api_key"] = api_key
             _save_config(config)
             return provider
         except Exception:
             return None
 
-    # 4. Multiple providers available — let user choose
     print(f"\n    {BOLD}Multiple AI providers detected:{RESET}\n")
-    for i, (key, info, api_key) in enumerate(available, 1):
+    for index, (_key, info, api_key) in enumerate(available, 1):
         masked = api_key[:8] + "..." + api_key[-4:]
-        print(f"    {BOLD}{i}{RESET}  {info['icon']} {info['name']}  {DIM}{masked}{RESET}")
+        print(f"    {BOLD}{index}{RESET}  {info['icon']} {info['name']}  {DIM}{masked}{RESET}")
     print(f"\n    {DIM}0  Skip — use manual commands only{RESET}\n")
-
-    try:
-        choice = input(f"    Select provider {DIM}[1-{len(available)}]{RESET}: ").strip()
-    except (KeyboardInterrupt, EOFError):
+    selected = _prompt_menu_index(
+        f"    Select provider {DIM}[1-{len(available)}]{RESET}: ",
+        len(available),
+    )
+    if selected is None:
         return None
 
-    if choice == "0" or not choice:
-        return None
-
-    try:
-        idx = int(choice) - 1
-        if idx < 0 or idx >= len(available):
-            print(f"    {RED}Invalid choice.{RESET}")
-            return None
-    except ValueError:
-        print(f"    {RED}Invalid choice.{RESET}")
-        return None
-
-    key, info, api_key = available[idx]
+    key, info, api_key = available[selected]
     try:
         provider = create_provider(key, api_key)
         print(f"    {GREEN}✓{RESET} Connected to {info['icon']} {info['name']}")
         config["provider"] = key
-        config["api_key"] = api_key
         _save_config(config)
         print(f"    {DIM}Type 'switch' to change provider{RESET}")
         return provider
-    except Exception as e:
-        print(f"    {RED}✗{RESET} Failed: {e}")
+    except Exception as exc:
+        print(f"    {RED}✗{RESET} Failed: {exc}")
         return None
 
 
@@ -715,149 +937,22 @@ def login_flow() -> AIProvider | None:
     """
     config = _load_config()
 
-    # Check if we have a saved session
-    saved_provider = config.get("provider")
-    saved_key = config.get("api_key")
+    provider, continue_login = _resume_saved_login(config)
+    if provider is not None or not continue_login:
+        return provider
 
-    if saved_provider and saved_key:
-        info = PROVIDERS.get(saved_provider, {})
-        print(f"\n    {BOLD}Saved login found:{RESET} {info.get('icon', '')} {info.get('name', saved_provider)}")
-        print()
-
-        try:
-            choice = input(f"    Use saved login? {DIM}[Y/n/switch]{RESET} ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            return None
-
-        if choice in ("", "y", "yes"):
-            if not _check_library(saved_provider):
-                pkg = _get_pip_package(saved_provider)
-                print(f"\n    {RED}Missing library.{RESET} Run: {CYAN}pip install {pkg}{RESET}")
-                return None
-            try:
-                provider = create_provider(saved_provider, saved_key)
-                print(f"    {GREEN}✓{RESET} Logged in as {info.get('icon', '')} {info.get('name', saved_provider)}")
-                return provider
-            except Exception as e:
-                print(f"    {RED}✗{RESET} Login failed: {e}")
-                print(f"    {DIM}Clearing saved credentials...{RESET}")
-                config.pop("provider", None)
-                config.pop("api_key", None)
-                _save_config(config)
-        elif choice in ("n", "no"):
-            return None
-        # Fall through to provider selection for "switch"
-
-    # Provider selection
-    print(f"\n    {BOLD}Select AI Provider:{RESET}")
-    print()
-
-    provider_list = list(PROVIDERS.items())
-    for i, (key, info) in enumerate(provider_list, 1):
-        installed = _check_library(key)
-        status = f"{GREEN}installed{RESET}" if installed else f"{DIM}not installed{RESET}"
-        print(f"    {BOLD}{i}{RESET}  {info['icon']} {info['name']}  {DIM}({status}){RESET}")
-
-    print(f"\n    {DIM}0  Skip — use manual commands instead{RESET}")
-    print()
-
-    try:
-        choice = input(f"    Select provider {DIM}[1-{len(provider_list)}]{RESET}: ").strip()
-    except (KeyboardInterrupt, EOFError):
+    selected = _select_login_provider()
+    if selected is None:
         return None
-
-    if choice == "0" or not choice:
-        return None
-
-    try:
-        idx = int(choice) - 1
-        if idx < 0 or idx >= len(provider_list):
-            print(f"    {RED}Invalid choice.{RESET}")
-            return None
-    except ValueError:
-        print(f"    {RED}Invalid choice.{RESET}")
-        return None
-
-    provider_key, info = provider_list[idx]
+    provider_key, info = selected
 
     # Check library
     if not _check_library(provider_key):
-        pkg = _get_pip_package(provider_key)
         print(f"\n    {YELLOW}Library not installed.{RESET} Install it with:")
-        print(f"    {CYAN}pip install {pkg}{RESET}")
-        print()
-        try:
-            do_install = input(f"    Install now? {DIM}[Y/n]{RESET} ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            return None
-
-        if do_install in ("", "y", "yes"):
-            print(f"    {DIM}Installing {pkg}...{RESET}")
-            import subprocess
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", pkg],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                print(f"    {RED}Install failed:{RESET} {result.stderr[:200]}")
-                return None
-            print(f"    {GREEN}✓{RESET} Installed {pkg}")
-        else:
-            return None
-
-    # Get API key
-    env_key = info.get("env_key", "")
-    existing_key = os.getenv(env_key, "")
-
-    if existing_key:
-        masked = existing_key[:8] + "..." + existing_key[-4:]
-        print(f"\n    {DIM}Found {env_key} in environment: {masked}{RESET}")
-        try:
-            use_env = input(f"    Use this key? {DIM}[Y/n]{RESET} ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            return None
-        if use_env in ("", "y", "yes"):
-            api_key = existing_key
-        else:
-            api_key = None
-    else:
-        api_key = None
-
-    if not api_key:
-        print(f"\n    Get your API key from: {CYAN}{info['key_url']}{RESET}")
-        print()
-        try:
-            api_key = input(f"    Enter {info['name']} API key: ").strip()
-        except (KeyboardInterrupt, EOFError):
-            return None
-
-        if not api_key:
-            print(f"    {RED}No key entered.{RESET}")
-            return None
-
-    # Validate
-    print(f"\n    {DIM}Validating API key...{RESET}", end="", flush=True)
-    ok, msg = validate_api_key(provider_key, api_key)
-    if ok:
-        print(f"\r\033[2K    {GREEN}✓{RESET} {msg}")
-    else:
-        print(f"\r\033[2K    {RED}✗{RESET} {msg}")
+        print(f"    {CYAN}pip install 'cisco-vmanage-mcp[{provider_key}]'{RESET}")
         return None
 
-    # Save
-    try:
-        save = input(f"    Save login for next time? {DIM}[Y/n]{RESET} ").strip().lower()
-    except (KeyboardInterrupt, EOFError):
-        save = "n"
-
-    if save in ("", "y", "yes"):
-        config["provider"] = provider_key
-        config["api_key"] = api_key
-        _save_config(config)
-        print(f"    {DIM}Saved to {CONFIG_FILE}{RESET}")
-
-    # Create provider
-    provider = create_provider(provider_key, api_key)
-    print(f"\n    {GREEN}✓{RESET} Ready — {info['icon']} {info['name']}")
-    return provider
+    api_key = _prompt_provider_key(info)
+    if api_key is None:
+        return None
+    return _validate_save_and_create_provider(provider_key, info, api_key, config)

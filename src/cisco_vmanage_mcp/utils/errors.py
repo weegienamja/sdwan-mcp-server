@@ -1,6 +1,7 @@
 """Error handling utilities."""
 
 import httpx
+
 from cisco_vmanage_mcp.client import (
     AuthenticationError,
     ConnectionError,

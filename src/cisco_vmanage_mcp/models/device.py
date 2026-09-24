@@ -1,7 +1,7 @@
 """Device-related Pydantic input models."""
 
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from cisco_vmanage_mcp.models.common import ResponseFormat
 
@@ -10,7 +10,7 @@ class ListDevicesInput(BaseModel):
     """Input parameters for listing SD-WAN devices."""
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
-    device_type: Optional[str] = Field(
+    device_type: str | None = Field(
         default=None,
         description=(
             "Filter by device type: 'vedge', 'vmanage', 'vsmart', 'vbond'. "
@@ -19,7 +19,7 @@ class ListDevicesInput(BaseModel):
         ),
         pattern=r"^(vedge|vmanage|vsmart|vbond)$",
     )
-    device_model: Optional[str] = Field(
+    device_model: str | None = Field(
         default=None,
         description=(
             "Filter by device model. Common values: "
@@ -29,13 +29,13 @@ class ListDevicesInput(BaseModel):
             "Case-insensitive match."
         ),
     )
-    reachability: Optional[str] = Field(
+    reachability: str | None = Field(
         default=None,
         description="Filter by reachability: 'reachable' or 'unreachable'. Leave empty for all.",
         pattern=r"^(reachable|unreachable)$",
     )
-    limit: Optional[int] = Field(default=25, ge=1, le=100, description="Max results to return")
-    offset: Optional[int] = Field(default=0, ge=0, description="Results to skip for pagination")
+    limit: int | None = Field(default=25, ge=1, le=100, description="Max results to return")
+    offset: int | None = Field(default=0, ge=0, description="Results to skip for pagination")
     response_format: ResponseFormat = Field(
         default=ResponseFormat.MARKDOWN,
         description="Output format: 'markdown' or 'json'",

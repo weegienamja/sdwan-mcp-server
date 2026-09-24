@@ -13,10 +13,15 @@ import json
 import os
 import platform
 import shutil
-import subprocess
+
+# Required only for fixed-argument Claude CLI registration.
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 from typing import Any
+
+CONFIG_DIR = Path.home() / ".vmanage-mcp"
+CREDENTIALS_FILE = CONFIG_DIR / "vmanage.env"
 
 
 # --- MCP client config paths ---
@@ -65,17 +70,14 @@ def _build_server_config(
     password: str,
     verify_ssl: str,
 ) -> dict[str, Any]:
-    """Build the MCP server config block for cisco-vmanage."""
+    """Build an MCP config that references, but does not contain, credentials."""
+    del host, port, username, password, verify_ssl
     python_path = sys.executable
     return {
         "command": python_path,
         "args": ["-m", "cisco_vmanage_mcp"],
         "env": {
-            "VMANAGE_HOST": host,
-            "VMANAGE_PORT": port,
-            "VMANAGE_USERNAME": username,
-            "VMANAGE_PASSWORD": password,
-            "VMANAGE_VERIFY_SSL": verify_ssl,
+            "VMANAGE_CONFIG_FILE": str(CREDENTIALS_FILE),
         },
     }
 
@@ -93,10 +95,6 @@ def _merge_config(existing: dict[str, Any], server_config: dict[str, Any]) -> di
 def _validate_environment() -> list[str]:
     """Check that Python and the package are installed correctly."""
     errors: list[str] = []
-
-    # Check Python version
-    if sys.version_info < (3, 11):
-        errors.append(f"Python 3.11+ required, found {sys.version}")
 
     # Check package is importable
     try:
@@ -164,7 +162,7 @@ def _prompt_client_selection(available: dict[str, Path], claude_code: bool) -> t
     print(f"  {idx}. Print config JSON (manual copy-paste)")
     options.append(("Manual", "manual"))
 
-    selection = input(f"\nSelect clients to configure (comma-separated, e.g. 1,2) [all]: ").strip()
+    selection = input("\nSelect clients to configure (comma-separated, e.g. 1,2) [all]: ").strip()
 
     if not selection or selection.lower() == "all":
         indices = list(range(len(options)))
@@ -197,6 +195,51 @@ def _prompt_client_selection(available: dict[str, Path], claude_code: bool) -> t
 
 # --- Writers ---
 
+def _write_private_text(path: Path, content: str, restrict_parent: bool = False) -> None:
+    """Write a regular file without exposing its contents to other users."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if restrict_parent:
+        path.parent.chmod(0o700)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            descriptor = -1
+            output.write(content)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _dotenv_quote(value: str) -> str:
+    """Quote a value for python-dotenv without permitting line injection."""
+    if "\n" in value or "\r" in value:
+        raise ValueError("Credential values must not contain newlines")
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _write_credentials_file(creds: dict[str, str], dry_run: bool) -> None:
+    """Persist vManage settings in the dedicated owner-only dotenv file."""
+    values = {
+        "VMANAGE_HOST": creds["host"],
+        "VMANAGE_PORT": creds["port"],
+        "VMANAGE_USERNAME": creds["username"],
+        "VMANAGE_PASSWORD": creds["password"],
+        "VMANAGE_VERIFY_SSL": creds["verify_ssl"],
+    }
+    content = "".join(
+        f"{name}={_dotenv_quote(value)}\n"
+        for name, value in values.items()
+    )
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would write credentials securely to {CREDENTIALS_FILE}")
+        return
+
+    _write_private_text(CREDENTIALS_FILE, content, restrict_parent=True)
+    print(f"Wrote credentials securely to {CREDENTIALS_FILE}")
+
 def _write_json_config(path: Path, server_config: dict[str, Any], dry_run: bool) -> None:
     """Write or merge server config into a JSON config file."""
     existing: dict[str, Any] = {}
@@ -213,36 +256,33 @@ def _write_json_config(path: Path, server_config: dict[str, Any], dry_run: bool)
         print(f"\n[DRY RUN] Would write to {path}:")
         print(output)
     else:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(output + "\n", encoding="utf-8")
+        _write_private_text(path, output + "\n")
         print(f"Wrote config to {path}")
 
 
 def _configure_claude_code(creds: dict[str, str], dry_run: bool) -> None:
     """Configure Claude Code via its CLI."""
-    env_args: list[str] = []
-    for key, env_name in [
-        ("host", "VMANAGE_HOST"),
-        ("port", "VMANAGE_PORT"),
-        ("username", "VMANAGE_USERNAME"),
-        ("password", "VMANAGE_PASSWORD"),
-        ("verify_ssl", "VMANAGE_VERIFY_SSL"),
-    ]:
-        env_args.extend(["-e", f"{env_name}={creds[key]}"])
+    del creds
 
     python_path = sys.executable
     cmd = [
         "claude", "mcp", "add", "cisco-vmanage",
-        *env_args,
+        "-e", f"VMANAGE_CONFIG_FILE={CREDENTIALS_FILE}",
         "--", python_path, "-m", "cisco_vmanage_mcp",
     ]
 
     if dry_run:
-        print(f"\n[DRY RUN] Would run:")
+        print("\n[DRY RUN] Would run:")
         print(f"  {' '.join(cmd)}")
     else:
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            # The command is an argv list assembled from constants and trusted local paths.
+            result = subprocess.run(  # nosec B603
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
             if result.returncode == 0:
                 print("Configured Claude Code successfully.")
             else:
@@ -307,6 +347,7 @@ def main(args: list[str] | None = None) -> None:
 
     # Prompt for credentials
     creds = _prompt_credentials()
+    _write_credentials_file(creds, dry_run)
 
     # Build config
     server_config = _build_server_config(

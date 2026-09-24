@@ -1,13 +1,13 @@
 """Markdown and JSON response formatters."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def _ms_to_readable(ms_timestamp) -> str:
     """Convert millisecond unix timestamp to human-readable string."""
     try:
         ts = int(ms_timestamp) / 1000
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts, tz=UTC)
         return dt.strftime("%d %b %Y %H:%M UTC")
     except (ValueError, TypeError, OSError):
         return "N/A"
@@ -59,8 +59,8 @@ def format_device_status_markdown(d: dict) -> str:
     """Format a single device's detailed status."""
     lines = [
         f"**Device Status: {d.get('host-name', 'N/A')}**\n",
-        f"| Field | Value |",
-        f"|-------|-------|",
+        "| Field | Value |",
+        "|-------|-------|",
         f"| Hostname | {d.get('host-name', 'N/A')} |",
         f"| System IP | {d.get('system-ip', 'N/A')} |",
         f"| Device Type | {d.get('device-type', 'N/A')} |",
@@ -114,8 +114,8 @@ def format_counters_markdown(counters: list, system_ip: str) -> str:
     lines = [f"**Device Counters for {system_ip}**\n"]
 
     for c in counters:
-        lines.append(f"| Field | Value |")
-        lines.append(f"|-------|-------|")
+        lines.append("| Field | Value |")
+        lines.append("|-------|-------|")
         for key, value in c.items():
             if key not in ("vdevice-dataKey", "vdevice-host-name", "vdevice-name"):
                 lines.append(f"| {key} | {_safe_str(value)} |")
@@ -166,9 +166,10 @@ def format_events_markdown(events: list, total: int) -> str:
 
     for e in events:
         lines.append(
-            f"- [{_safe_str(e.get('severity', 'Info'))}] "
+            f"- [{_safe_str(e.get('severity', e.get('severity_level', 'Info')))}] "
             f"{_safe_str(e.get('eventname', e.get('type', 'N/A')))} | "
-            f"{_safe_str(e.get('host-name', 'N/A'))} ({_safe_str(e.get('system-ip', 'N/A'))}) | "
+            f"{_safe_str(e.get('host-name', e.get('host_name', 'N/A')))} "
+            f"({_safe_str(e.get('system-ip', e.get('system_ip', 'N/A')))}) | "
             f"{_safe_str(e.get('entry_time', e.get('receive_time', 'N/A')))}"
         )
 

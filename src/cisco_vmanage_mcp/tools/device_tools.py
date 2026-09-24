@@ -1,37 +1,33 @@
 """Device inventory and status MCP tools."""
 
 import json
-from typing import Optional
+
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.server import mcp
-from cisco_vmanage_mcp.models.common import ResponseFormat
+from cisco_vmanage_mcp.services.audit import audit_tool
+from cisco_vmanage_mcp.tools import read_only_annotations
+from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
-    format_device_table_markdown,
-    format_device_status_markdown,
-    format_interfaces_markdown,
-    format_counters_markdown,
     _ms_to_readable,
     _safe_str,
+    format_counters_markdown,
+    format_device_status_markdown,
+    format_device_table_markdown,
+    format_interfaces_markdown,
 )
-from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
 @mcp.tool(
     name="vmanage_list_devices",
-    annotations={
-        "title": "List SD-WAN Devices",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("List SD-WAN Devices"),
 )
+@audit_tool("vmanage_list_devices")
 async def vmanage_list_devices(
     ctx: Context,
-    device_type: Optional[str] = None,
-    device_model: Optional[str] = None,
-    reachability: Optional[str] = None,
+    device_type: str | None = None,
+    device_model: str | None = None,
+    reachability: str | None = None,
     limit: int = 25,
     offset: int = 0,
     response_format: str = "markdown",
@@ -109,14 +105,9 @@ async def vmanage_list_devices(
 
 @mcp.tool(
     name="vmanage_get_device_status",
-    annotations={
-        "title": "Get Device Status",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get Device Status"),
 )
+@audit_tool("vmanage_get_device_status")
 async def vmanage_get_device_status(
     system_ip: str,
     ctx: Context,
@@ -177,14 +168,9 @@ async def vmanage_get_device_status(
 
 @mcp.tool(
     name="vmanage_get_device_counters",
-    annotations={
-        "title": "Get Device Counters",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get Device Counters"),
 )
+@audit_tool("vmanage_get_device_counters")
 async def vmanage_get_device_counters(
     system_ip: str,
     ctx: Context,
@@ -214,14 +200,9 @@ async def vmanage_get_device_counters(
 
 @mcp.tool(
     name="vmanage_get_device_interfaces",
-    annotations={
-        "title": "Get Device Interfaces",
-        "readOnlyHint": True,
-        "destructiveHint": False,
-        "idempotentHint": True,
-        "openWorldHint": True,
-    },
+    annotations=read_only_annotations("Get Device Interfaces"),
 )
+@audit_tool("vmanage_get_device_interfaces")
 async def vmanage_get_device_interfaces(
     system_ip: str,
     ctx: Context,
