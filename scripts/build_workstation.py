@@ -30,6 +30,7 @@ def add_edge_integration(kit: Path) -> None:
 
     shutil.copytree(ROOT / "src/cisco_vmanage_mcp/edge_addon", kit / "Edge extension")
     shutil.copy2(ROOT / "scripts" / "Set up Edge.cmd", kit)
+    shutil.copy2(ROOT / "scripts" / "Set up Edge.cmd", kit / "Set up BlairScope.cmd")
     # distlib's console launcher resolves this interpreter relative to itself after extraction.
     vendor = Path(distlib.__file__).parent
     stub = (vendor / "t64.exe").read_bytes()

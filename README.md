@@ -1,37 +1,41 @@
 <a name="cisco-vmanage-mcp-server"></a>
 
-# ![Cisco vManage MCP Server — Made by Jamie Blair](docs/assets/sdwan-masthead.svg)
+# ![BlairScope — Cisco SD-WAN diagnostics by Jamie Blair](docs/assets/sdwan-masthead.svg)
 
 [![Cisco access · read-only](https://img.shields.io/badge/Cisco_access-read--only-005073?labelColor=0D274D)](#safety)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-0875A1?labelColor=0D274D)](#quick-start)
 [![License · Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-005073?labelColor=0D274D)](LICENSE)
 [![CI status on main](https://github.com/weegienamja/sdwan-mcp-server/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/weegienamja/sdwan-mcp-server/actions/workflows/ci.yml)
 
-Ask about unreachable sites, active alarms and tunnel health in Cisco Catalyst SD-WAN Manager (vManage). On Windows, the Edge extension reads from your signed-in Manager tab and Qwen explains the snapshot on your laptop. For MCP clients, the server provides 21 read-only tools.
+Ask about unreachable sites, active alarms and tunnel health in Cisco Catalyst SD-WAN Manager (vManage). On Windows, **BlairScope** opens a full-height sidebar in Edge or Chrome. It reads from your signed-in Manager tab and Qwen explains the snapshot on your laptop. For MCP clients, the server provides 21 read-only tools.
 
-**[Download the Windows x64 ZIP](https://github.com/weegienamja/sdwan-mcp-server/releases/latest/download/SD-WAN-Workstation-Windows-x64.zip)** · [Windows and Edge setup](#set-up-the-windows-app-and-edge) · [MCP server setup](#quick-start) · [Tool reference](#available-tools)
+**[Download the Windows x64 ZIP](https://github.com/weegienamja/sdwan-mcp-server/releases/latest/download/SD-WAN-Workstation-Windows-x64.zip)** · [Windows and browser setup](#set-up-blairscope-in-edge-or-chrome) · [Preview the sidebar](docs/assets/blairscope-sidebar.png) · [MCP server setup](#quick-start) · [Tool reference](#available-tools)
 
-## Set up the Windows app and Edge
+<a name="set-up-the-windows-app-and-edge"></a>
 
-The ZIP includes the Windows app, the Edge extension, Python and the CPU inference runtime. Have your Qwen3.5-4B `.gguf` in **Downloads** and the address you normally use to reach Manager after signing in. The extension uses your company SSO and MFA. No API token or gateway is required.
+## Set up BlairScope in Edge or Chrome
 
-1. **Extract the kit.** In File Explorer, open **Downloads**, right-click **SD-WAN-Workstation-Windows-x64.zip** and choose **Extract All**. Pick a local folder you can keep, such as `C:\Users\<your-name>\SD-WAN-Workstation`. Open the extracted folder containing **Set up Edge.cmd** and **Edge extension**. Keep the contents together.
+The ZIP includes the Windows app, the BlairScope extension, Python and the CPU inference runtime. Have your Qwen3.5-4B `.gguf` in **Downloads** and the address you normally use to reach Manager after signing in. In work mode, sign in to Manager with your company SSO and MFA. No API token or gateway is required.
 
-2. **Register your Manager.** Double-click **Set up Edge.cmd** under your usual Windows account. At `Cisco Manager HTTPS hostname`, enter the HTTPS address from the signed-in **Manager** tab, including the port if one is shown. For example, if the dashboard is at `https://manager.example.com:8443/app/dashboard`, enter `https://manager.example.com:8443`.
+1. **Extract the kit.** In File Explorer, open **Downloads**, right-click **SD-WAN-Workstation-Windows-x64.zip** and choose **Extract All**. Pick a local folder you can keep, such as `C:\Users\<your-name>\SD-WAN-Workstation`. Open the extracted folder containing **Set up BlairScope.cmd** and **Edge extension**. Keep the contents together.
+
+2. **Register your Manager.** Double-click **Set up BlairScope.cmd** under your usual Windows account. For DevNet-only use, press **Enter** at the work Manager prompt. Otherwise enter the HTTPS address from the signed-in **Manager** tab, including the port if one is shown. For example, if the dashboard is at `https://manager.example.com:8443/app/dashboard`, enter `https://manager.example.com:8443`.
 
 3. **Select Qwen.** Setup searches your user account’s **Downloads** folder for matching GGUFs. With one match it prints `Using` and the full path. With several, type the number beside the model you want. If prompted for a path, right-click your GGUF in File Explorer, choose **Copy as path**, paste it into the setup window and press **Enter**. For a split model, keep the shards together and select the first (`00001-of-…`). Setup prints the **Edge extension** folder to use next.
 
-4. **Load the extension in your work Edge profile.** If your organisation allows unpacked extensions, open `edge://extensions`, turn on **Developer mode** and click **Load unpacked**. Select the **Edge extension** folder printed by setup. It contains `manifest.json`. Click **Select Folder** and look for **SD-WAN Workstation** in the installed list. If your organisation locks these controls, ask IT to deploy the bundled extension and allow its local native messaging host. [Microsoft’s Edge installation guide](https://learn.microsoft.com/en-us/microsoft-edge/extensions/getting-started/extension-sideloading)
+4. **Load the extension in your work Edge or Chrome profile.** If your organisation allows unpacked extensions, open `edge://extensions` or `chrome://extensions`, turn on **Developer mode** and click **Load unpacked**. Select the **Edge extension** folder printed by setup. It contains `manifest.json`. Click **Select Folder** and look for **BlairScope** in the installed list. If your organisation locks these controls, ask IT to deploy the bundled extension and allow its local native messaging host. [Microsoft’s Edge installation guide](https://learn.microsoft.com/en-us/microsoft-edge/extensions/getting-started/extension-sideloading)
 
-5. **Put Diagnose on the toolbar.** Open **Extensions** (the puzzle-piece icon) beside Edge’s address bar. Find **SD-WAN Workstation** and select **Show in toolbar**. Hover over its toolbar icon to see **Diagnose with local Qwen**.
+5. **Put Diagnose on the toolbar.** Open **Extensions** beside the address bar. Find **BlairScope** and select **Show in toolbar** in Edge or the **pin** in Chrome. Hover over its toolbar icon to see **Diagnose with local Qwen**.
 
-6. **Capture a snapshot.** Connect to your work network or VPN if required. Open the configured Manager in that Edge profile and complete your usual SSO and MFA. Once the **Manager dashboard** is visible, click the extension’s toolbar icon or press **Alt+Shift+Q**. Keep the Manager tab open. A new **SD-WAN diagnostics** tab shows the inventory count and capture time. Expand **Collection results** to see which reads succeeded.
+6. **Capture a snapshot.** Connect to your work network or VPN if required. Open the configured Manager in that browser profile and complete your usual SSO and MFA. Once the **Manager dashboard** is visible, click the extension’s toolbar icon or press **Alt+Shift+Q**. Keep the Manager tab open. The **BlairScope** sidebar opens alongside Manager and shows the inventory count and capture time. Expand **Collection results** to see which reads succeeded.
 
 7. **Ask about the estate.** In **Question about this snapshot**, try **Which sites have unreachable devices?** and click **Ask Qwen**. Use **Device detail** for a device’s BFD sessions, control connections and system status. Choose **Refresh snapshot** when you want current evidence. Qwen answers from the captured data on your laptop.
 
+**To use the Cisco lab**, switch on **Sandbox mode** in the sidebar and choose **Sign in to DevNet**. Launch the SD-WAN lab from the catalogue. Follow the reservation’s instructions, sign in to its Manager, then click BlairScope on that tab. The toggle clears the previous snapshot and chat. For a different lab hostname, see [DevNet setup](docs/WORKSTATION.md#devnet-sandbox).
+
 **To try Qwen offline first**, open PowerShell in the extracted folder and run `& '.\Start SD-WAN.cmd' --check-model`. It asks the local GGUF about three sample devices.
 
-**If the workstation disconnects**, run **Set up Edge.cmd** again under the same Windows account. Repeat setup if you move the kit or GGUF. If the kit moved, repeat **Load unpacked** with the new extension folder. If **Collection results** shows **denied**, check that your Cisco role can read that data. [Workstation and IT deployment details](docs/WORKSTATION.md)
+**If the workstation disconnects**, run **Set up BlairScope.cmd** again under the same Windows account. Repeat setup if you move the kit or GGUF. If the kit moved, repeat **Load unpacked** with the new extension folder. If **Collection results** shows **denied**, check that your Cisco role can read that data. [Workstation and IT deployment details](docs/WORKSTATION.md)
 
 ![](docs/assets/fabric-rule.svg)
 

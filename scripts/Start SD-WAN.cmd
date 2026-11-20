@@ -1,4 +1,5 @@
 @echo off
+title BlairScope local diagnostics
 setlocal
 "%~dp0python\python.exe" -B -X utf8 -m cisco_vmanage_mcp.workstation --llama-server "%~dp0llama\llama-server.exe" %*
 set "sdwan_result=%errorlevel%"

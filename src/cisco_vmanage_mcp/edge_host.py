@@ -18,6 +18,8 @@ from cisco_vmanage_mcp.utils.private_files import write_private_text
 HOST = "org.sdwan.workstation"
 EXTENSION = "chrome-extension://beapjnblokiomlppfhbidaaabofbolci/"
 MAX_FRAME = 4 * 1024 * 1024
+DEFAULT_SANDBOX = "https://sandbox-sdwan-2.cisco.com"
+BROWSER_KEYS = (r"Microsoft\Edge", r"Google\Chrome")
 
 
 def settings_dir() -> Path:
@@ -48,12 +50,13 @@ def write_frame(stream: BinaryIO, data: dict) -> None:
     stream.flush()
 
 
-def install(kit: Path, origin: str, gguf: Path) -> None:
+def install(kit: Path, origin: str, gguf: Path, sandbox: str = DEFAULT_SANDBOX) -> None:
     if sys.platform != "win32":
         raise OSError("The Edge workstation kit requires Windows.")
     import winreg
 
-    origin = str(manager_origin(origin)).rstrip("/")
+    origin = str(manager_origin(origin)).rstrip("/") if origin else ""
+    sandbox = str(manager_origin(sandbox)).rstrip("/")
     gguf = gguf.expanduser().resolve(strict=True)
     with gguf.open("rb") as file:
         if file.read(4) != b"GGUF":
@@ -61,13 +64,14 @@ def install(kit: Path, origin: str, gguf: Path) -> None:
     exe = (kit / "sdwan-edge-host.exe").resolve(strict=True)
     directory = settings_dir()
     manifest = directory / "edge-host.json"
-    write_private_text(directory / "settings.json", json.dumps({"manager": origin, "model": str(gguf)}))
+    write_private_text(directory / "settings.json", json.dumps({"manager": origin, "sandbox": sandbox, "model": str(gguf)}))
     write_private_text(manifest, json.dumps({
         "name": HOST, "description": "Local read-only SD-WAN diagnostics", "type": "stdio",
         "path": str(exe), "allowed_origins": [EXTENSION],
     }))
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Microsoft\Edge\NativeMessagingHosts\{HOST}") as key:
-        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, str(manifest))
+    for browser in BROWSER_KEYS:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\{browser}\NativeMessagingHosts\{HOST}") as key:
+            winreg.SetValueEx(key, "", 0, winreg.REG_SZ, str(manifest))
 
 
 class DiagnosticSession:
@@ -77,17 +81,26 @@ class DiagnosticSession:
         self.stack = stack
         self.snapshot = None
         self.model = None
+        self.origins = {"work": settings["manager"], "sandbox": settings.get("sandbox", DEFAULT_SANDBOX)}
+        self.mode = "work"
 
     async def handle(self, message: dict) -> dict:
         kind = message.get("type")
         if kind == "hello":
-            return {"type": "hello", "manager": self.settings["manager"]}
+            return {"type": "hello", "manager": self.origins["work"], "origins": self.origins}
+        if kind == "select":
+            self.snapshot = None
+            mode = message.get("mode")
+            if mode not in self.origins:
+                raise ValueError("Choose a configured environment.")
+            self.mode = mode
+            return {"type": "selected", "origin": self.origins[mode]}
         if kind == "clear":
             self.snapshot = None
             return {"type": "cleared"}
         if kind == "capture":
             self.snapshot = None
-            if message.get("origin") != self.settings["manager"]:
+            if not self.origins[self.mode] or message.get("origin") != self.origins[self.mode]:
                 raise ValueError("Unexpected Manager origin.")
             self.snapshot = validate_capture(message["snapshot"])
             return {"type": "ready"}
@@ -124,16 +137,19 @@ def main() -> int:
 
         parser = argparse.ArgumentParser()
         parser.add_argument("--manager")
+        parser.add_argument("--sandbox-manager", default=DEFAULT_SANDBOX)
         parser.add_argument("--model", type=Path)
         options = parser.parse_args(sys.argv[2:])
-        origin = options.manager or input("Cisco Manager HTTPS hostname: ").strip()
+        origin = options.manager if options.manager is not None else input(
+            "Work Manager HTTPS hostname (press Enter for DevNet only): "
+        ).strip()
         model = options.model or _choose_model(Path.home() / "Downloads")
         try:
-            install(kit, origin, model)
+            install(kit, origin, model, options.sandbox_manager)
         except (ValueError, OSError) as exc:
             print(str(exc), file=sys.stderr)
             return 1
-        print("Open edge://extensions and load the Edge extension folder from this kit.")
+        print("BlairScope is ready. Open edge://extensions or chrome://extensions and load this folder:")
         print(kit / "Edge extension")
         return 0
     if len(sys.argv) < 2 or sys.argv[1] != EXTENSION:

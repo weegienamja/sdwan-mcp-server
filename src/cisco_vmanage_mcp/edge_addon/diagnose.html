@@ -1,19 +1,48 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SD-WAN diagnostics</title><link rel="stylesheet" href="diagnose.css"></head>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BlairScope · SD-WAN diagnostics</title><link rel="stylesheet" href="diagnose.css">
+</head>
 <body><main>
-  <header><h1>SD-WAN diagnostics</h1><p id="manager">Connecting to the Windows workstation…</p></header>
-  <section aria-labelledby="capture"><h2 id="capture">Manager snapshot</h2>
-    <output id="state">Checking the signed-in tab…</output>
-    <div class="controls"><label>Device detail<select id="device" disabled><option value="">Estate overview</option></select></label>
-    <button id="refresh" disabled>Refresh snapshot</button></div>
-    <details><summary>Collection results</summary><ul id="sources"></ul></details>
-  </section>
-  <section aria-labelledby="chat"><h2 id="chat">Ask local Qwen</h2>
-    <div id="thread" aria-live="polite"></div>
-    <form><label for="question">Question about this snapshot</label>
-      <textarea id="question" maxlength="2000" rows="2" required placeholder="Which sites have unreachable edges?"></textarea>
-      <button id="ask" disabled>Ask Qwen</button><output id="progress"></output>
-    </form>
-  </section>
-</main><script type="module" src="diagnose.js"></script></body></html>
+  <header class="masthead">
+    <img src="mark.svg" width="46" height="46" alt="">
+    <div><h1>BlairScope</h1><p>SD-WAN diagnostics</p></div>
+    <span class="readonly">Read-only</span>
+  </header>
+  <div class="workspace">
+    <section class="environment" aria-labelledby="env">
+      <div class="row">
+        <h2 id="env">Environment</h2>
+        <label class="switch">Sandbox mode<input id="sandbox" type="checkbox" role="switch"><span aria-hidden="true"></span></label>
+      </div>
+      <p class="environment-name" id="environment">Work estate</p>
+      <p class="host" id="manager">Connecting to Windows…</p>
+      <div id="lab" hidden>
+        <p>Open your SD-WAN reservation, then sign in to its Manager and click BlairScope in the toolbar.</p>
+        <div class="links"><a href="https://developer.cisco.com/sandbox/" target="_blank" rel="noreferrer">Sign in to DevNet ↗</a>
+          <a id="lab-manager" target="_blank" rel="noreferrer" hidden>Open lab Manager ↗</a></div>
+      </div>
+    </section>
+    <section class="snapshot" aria-labelledby="capture">
+      <div class="row"><h2 id="capture">Manager snapshot</h2><button id="refresh" type="button" disabled>Refresh snapshot</button></div>
+      <div class="metrics" hidden id="metrics"><div><strong id="total"></strong><span>Devices</span></div>
+        <div><strong id="down"></strong><span>Unreachable</span></div>
+        <div><strong id="time"></strong><span>Captured</span></div></div>
+      <output id="state" aria-live="polite">Checking the active tab…</output>
+      <label class="field" for="device">Device detail</label>
+      <select id="device" disabled><option value="">Estate overview</option></select>
+      <details><summary>Collection results</summary><ul id="sources"></ul></details>
+    </section>
+    <section class="chat" aria-labelledby="chat-heading">
+      <h2 id="chat-heading">Ask local Qwen</h2>
+      <div id="thread" role="log" aria-live="polite"></div>
+      <form><label class="field" for="question">Question about this snapshot</label>
+        <textarea id="question" maxlength="2000" rows="2" required placeholder="Which sites have unreachable devices?"></textarea>
+        <div class="send"><output id="progress" aria-live="polite"></output><button id="ask" disabled>Ask Qwen <span aria-hidden="true">↑</span></button></div>
+      </form>
+    </section>
+    <footer>BlairScope <span>by Jamie Blair</span></footer>
+  </div>
+</main><script type="module" src="diagnose.js"></script></body>
+</html>

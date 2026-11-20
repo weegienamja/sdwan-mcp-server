@@ -3,7 +3,7 @@ import hashlib
 import io
 import json
 import struct
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.resources import files
 from unittest.mock import AsyncMock
 
@@ -33,7 +33,8 @@ def test_packaged_extension_identity_permissions_and_read_paths():
     digest = hashlib.sha256(base64.b64decode(manifest["key"])).hexdigest()
     extension_id = "".join(chr(ord("a") + int(d, 16)) for d in digest[:32])
     assert edge_host.EXTENSION == f"chrome-extension://{extension_id}/"
-    assert set(manifest["permissions"]) == {"activeTab", "scripting", "nativeMessaging"}
+    assert set(manifest["permissions"]) == {"activeTab", "scripting", "nativeMessaging", "sidePanel"}
+    assert manifest["side_panel"] == {"default_path": "diagnose.html"}
     assert "host_permissions" not in manifest
     assert "externally_connectable" not in manifest
     assert {r["path"] for r in READS.values()} == _READ_PATHS
@@ -101,3 +102,18 @@ def test_device_detail_is_scoped_to_visible_system_ip():
     snapshot["selected"] = "192.0.2.3"
     with pytest.raises(ValueError, match="outside"):
         validate_capture(snapshot)
+
+
+@pytest.mark.asyncio
+async def test_mode_switch_discards_snapshot_and_accepts_only_selected_origin(tmp_path):
+    work, lab = "https://work.invalid", "https://lab.invalid:8443"
+    settings = {"manager": work, "sandbox": lab, "model": "unused"}
+    session = edge_host.DiagnosticSession(tmp_path, settings, AsyncExitStack())
+    assert (await session.handle({"type": "hello"}))["origins"] == {"work": work, "sandbox": lab}
+    for mode, origin, other in (("work", work, lab), ("sandbox", lab, work), ("work", work, lab)):
+        assert (await session.handle({"type": "select", "mode": mode}))["origin"] == origin
+        with pytest.raises(ValueError, match="Capture"):
+            await session.handle({"type": "ask", "question": "List devices"})
+        with pytest.raises(ValueError, match="origin"):
+            await session.handle({"type": "capture", "origin": other, "snapshot": capture()})
+        assert (await session.handle({"type": "capture", "origin": origin, "snapshot": capture()}))["type"] == "ready"

@@ -1,12 +1,70 @@
-:root{color-scheme:light dark;font:16px/1.55 Inter,system-ui,sans-serif;color:#192f34;background:#f3f6f4}
-*{box-sizing:border-box}main{max-width:800px;margin:3rem auto;padding:0 1.25rem}
-header{border-bottom:2px solid #286650;margin-bottom:2rem}h1{font-size:2.4rem;line-height:1.1;letter-spacing:-.045em;margin:.2em 0}
-h2{font-size:1.25rem;margin:0 0 .5rem}section{background:#fff;border:1px solid #b8c8c3;border-radius:8px;padding:1.4rem;margin:1rem 0}
-label,summary{font-weight:600}label{display:grid;gap:.3rem}.controls{display:flex;flex-wrap:wrap;gap:.8rem;align-items:end}
-button,select,textarea{font:inherit;border:1px solid #738a82;border-radius:4px;padding:.45rem .7rem}
-button{background:#1b5946;border-color:#1b5946;color:white;cursor:pointer;font-weight:600}button:disabled{opacity:.5;cursor:default}
-textarea{display:block;width:100%;margin:.4rem 0 .8rem;resize:vertical}details{margin-top:.9rem}summary{cursor:pointer}
-article{border-left:3px solid #9db8ac;padding-left:1rem;margin:1rem 0;white-space:pre-wrap;overflow-wrap:anywhere}
-#progress{margin-left:.6rem}#manager{overflow-wrap:anywhere}
-#state{display:block;margin:.5rem 0 1rem}
-@media(prefers-color-scheme:dark){:root{background:#142120;color:#e5eeea}section{background:#1d302e}button{background:#287057}}
+:root {
+  color-scheme: light; font: 14px/1.5 Inter, "Segoe UI", Arial, sans-serif;
+  color: #102f48; background: #f3f8fb; --ink: #0e3655; --muted: #486379;
+  --blue: #00669a; --line: #cddfe9; --pale: #eaf5fb; --surface: #fff;
+  scrollbar-color: #83a5b9 #f3f8fb; caret-color: var(--blue);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body, h1, h2, p { margin: 0; }
+body { min-width: 0; }
+main { min-height: 100vh; min-height: 100dvh; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) {
+  main { animation: slide-in 240ms cubic-bezier(.16,1,.3,1) both; }
+  @keyframes slide-in { from { transform: translateX(36px); opacity: .35; } to { transform: none; opacity: 1; } }
+}
+.masthead { display: flex; align-items: center; gap: 12px; padding: 23px 19px 24px;
+  color: #fff; background: #073558; border-radius: 0 0 24px 0; border-bottom: 3px solid #25c8df; }
+h1 { font-size: 26px; letter-spacing: -.035em; line-height: 1.12; }
+.masthead p { color: #c7eaf7; margin-top: 2px; }
+.readonly { margin-left: auto; font-size: 12px; color: #d2f6fc; white-space: nowrap; }
+.workspace { display: flex; flex-direction: column; gap: 16px; padding: 18px 16px 12px; }
+section { min-width: 0; }
+h2 { font-size: 17px; letter-spacing: -.018em; line-height: 1.3; color: var(--ink); }
+.row, .links, .send { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; justify-content: space-between; }
+.environment { padding: 0 3px 3px; }
+.environment-name { font-size: 15px; font-weight: 650; margin-top: 12px; }
+.host, #lab p, #state, #progress, footer { color: var(--muted); }
+.host { font-size: 13px; }
+.switch { display: inline-flex; position: relative; align-items: center; min-height: 32px; gap: 7px; color: var(--ink); cursor: pointer; }
+.switch input { position: absolute; opacity: 0; }
+.switch span { width: 35px; height: 21px; background: #738b9b; border-radius: 18px; padding: 3px; }
+.switch span::after { content: ""; display: block; width: 15px; height: 15px; border-radius: 50%; background: #fff; }
+.switch input:checked + span { background: #0074ac; }
+.switch input:checked + span::after { transform: translateX(14px); }
+@media (prefers-reduced-motion: no-preference) { .switch span::after { transition: transform 160ms ease-out; } }
+:focus-visible, .switch input:focus-visible + span { outline: 3px solid #008ab8; outline-offset: 3px; }
+::selection { background: #bbebfa; color: #0d344f; }
+#lab { border-left: 3px solid #28a9d2; padding-left: 11px; margin-top: 12px; }
+#lab p { font-size: 13px; }
+.links { justify-content: flex-start; gap: 6px 15px; margin-top: 7px; }
+a, summary { color: var(--blue); text-underline-offset: 3px; font-weight: 600; }
+.snapshot, .chat { padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 17px; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr auto; gap: 7px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.metrics strong, .metrics span { display: block; }
+.metrics strong { font-size: 23px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.metrics span { font-size: 12px; color: var(--muted); }
+#time { font-size: 17px; line-height: 30px; }
+#state { display: block; margin: 12px 0; font-size: 13px; }
+.field { display: block; font-weight: 600; margin-bottom: 5px; }
+button, select, textarea { font: inherit; }
+select, textarea { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #93adbf; border-radius: 9px; background: var(--surface); color: var(--ink); }
+textarea { resize: vertical; display: block; min-height: 66px; }
+textarea::placeholder { color: var(--muted); }
+button { font-weight: 650; cursor: pointer; padding: 6px 12px; color: var(--blue); border: 1px solid var(--line); background: var(--pale); border-radius: 20px; }
+button:hover:enabled { border-color: var(--blue); }
+button:disabled, select:disabled { opacity: .62; cursor: default; }
+details { margin-top: 11px; }
+summary { cursor: pointer; font-size: 13px; }
+#sources { font-size: 12px; padding-left: 17px; margin: 7px 0 0; }
+.chat h2 { margin-bottom: 13px; }
+.send { margin-top: 9px; flex-wrap: nowrap; }
+#progress { font-size: 12px; }
+#ask { flex: none; margin-left: auto; background: var(--blue); color: #fff; border-color: transparent; padding: 8px 15px; }
+#ask:hover:enabled { background: #00517e; }
+article { padding: 12px 0; border-top: 1px solid var(--line); white-space: pre-wrap; }
+article strong { color: var(--blue); }
+footer { font-size: 12px; padding: 0 3px 8px; font-weight: 650; }
+footer span { font-weight: 400; }
+@media (max-width: 330px) { .masthead { padding: 16px 12px; } .workspace { padding: 14px 10px; } .snapshot, .chat { padding: 12px; } }
+@media (forced-colors: active) { .switch span { border: 1px solid ButtonText; } .switch span::after { background: ButtonText; } }

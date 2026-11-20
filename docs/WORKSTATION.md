@@ -1,21 +1,31 @@
-# Local SD-WAN workstation for Windows
+# BlairScope for Windows
 
 Use your existing Qwen3.5-4B GGUF to ask about the devices visible to your own Cisco account. The workstation runs on one Windows x64 laptop. It includes Python and a CPU build of llama.cpp. The GGUF stays in your Downloads folder.
 
-The Windows app and Edge extension are distributed together. [Download the Windows x64 ZIP](https://github.com/weegienamja/sdwan-mcp-server/releases/latest/download/SD-WAN-Workstation-Windows-x64.zip)
+The Windows app and Edge/Chrome extension are distributed together. [Download the Windows x64 ZIP](https://github.com/weegienamja/sdwan-mcp-server/releases/latest/download/SD-WAN-Workstation-Windows-x64.zip)
 
-## Sign in with Edge
+## Sign in with Edge or Chrome
 
-1. Extract **SD-WAN-Workstation-Windows-x64.zip** into a permanent local folder. Run **Set up Edge.cmd** once. Enter the exact HTTPS origin of your Manager and select your downloaded Qwen3.5-4B GGUF. This registers the local native messaging host for your Windows user. Run setup again after moving the kit or changing Manager or model.
-2. Install the bundled **Edge extension** folder using your organisation's approved extension process. For an unpacked pilot on a laptop that permits it, open `edge://extensions`, enable **Developer mode**, choose **Load unpacked** and select **Edge extension**. Pin **SD-WAN Workstation** to the toolbar. Corporate policies may require IT distribution.
-3. Open the configured Manager in Edge, sign in through your normal SSO and MFA, then click **Diagnose with local Qwen** in the toolbar (or press **Alt+Shift+Q**). Keep the Manager tab open. A diagnostic tab shows the capture time, visible inventory and which reads succeeded.
-4. Ask a question such as **Which devices at site 100 are unreachable?** Choose a device under **Device detail** for BFD, control connections and system status. **Refresh snapshot** collects current data. Questions use the displayed snapshot until you refresh. Close the diagnostic tab to end the chat.
+1. Extract the Windows x64 ZIP into a permanent local folder. Run **Set up BlairScope.cmd** under your usual Windows account. Enter the work Manager HTTPS origin including any port, or press Enter to use DevNet only. Select your Qwen3.5-4B GGUF from Downloads. Setup registers the same local host for Edge and Chrome.
+2. Open `edge://extensions` or `chrome://extensions` in your work browser profile. Where company policy permits, enable **Developer mode**, choose **Load unpacked** and select the kit’s **Edge extension** folder. In the browser’s Extensions menu, pin **BlairScope**. Managed installations may require IT distribution. When upgrading from the previous kit, run the new setup and load the new extension folder together.
+3. In work mode, open the configured Manager, finish the usual SSO and MFA, and click **BlairScope** in that tab’s toolbar (or press **Alt+Shift+Q**). The full-height sidebar displays your capture beside the dashboard. The browser controls which side it docks on. In Chrome choose **Right** under **Settings → Appearance → Side panel** for a right-hand drawer.
+4. Ask **Which sites have unreachable devices?** Use **Device detail** to inspect a router or **Refresh snapshot** for current data. Switching modes or active tabs clears the snapshot and conversation. Click BlairScope on the desired Manager tab to capture again.
 
-This mode uses the browser's existing same-origin access. It requires neither a personal API token nor a gateway. The extension has temporary access to the activated tab and accepts only the Manager origin entered during setup. Its only Cisco requests are six fixed GETs. A 403, blocked read or login redirect is reported in the collection results. Some Manager releases require CSRF protection for particular reads. The extension honours these restrictions. [Cisco CSRF documentation](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/cisco-sd-wan-api-cross-site-request-forgery-prevention.html)
+## DevNet sandbox
 
-Only allowlisted evidence fields and source status travel to the Windows process through Edge Native Messaging. Cisco session cookies, passwords, authorization headers and raw configurations stay out of the messages. Captures and chat stay in memory. Qwen has no mechanism for requesting new Manager data. Collection is capped at 1,500 inventory rows, 250 alarms and 250 rows per connection table, with partial or oversized responses identified. [Microsoft Edge Native Messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging)
+Switch on **Sandbox mode** and choose **Sign in to DevNet**. In Cisco’s catalogue, launch the SD-WAN sandbox and follow its reservation instructions, including VPN access if specified. Use the credentials Cisco provides on the lab Manager’s own sign-in page. After sign-in, click BlairScope in the lab Manager tab. **Open lab Manager** opens the configured lab address directly when you already have a reservation. Catalogue sign-in and Manager sign-in are separate steps. [Cisco’s reservation guide](https://developer.cisco.com/docs/sandbox/getting-started/)
 
-For deployment, setup writes `settings.json` and `edge-host.json` under `%LOCALAPPDATA%\SD-WAN Workstation` and registers `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\org.sdwan.workstation`. The host permits only the packaged extension ID, `beapjnblokiomlppfhbidaaabofbolci`. IT should verify the extension identity when preparing a managed or store distribution. Removing the extension, that registration and its settings folder removes the integration.
+The kit defaults to `https://sandbox-sdwan-2.cisco.com`. If the reservation lists a different Manager address, run the following in PowerShell inside the extracted kit, substituting its exact HTTPS origin. Complete the work Manager and GGUF prompts again, then reopen BlairScope.
+
+```powershell
+& '.\Set up BlairScope.cmd' --sandbox-manager 'https://lab-manager.example.com:8443'
+```
+
+BlairScope uses the browser’s existing same-origin access. Each mode accepts only its configured Manager origin. Inventory, alarms and device details use six fixed GET endpoints. Blocked reads and expired sign-ins appear in **Collection results**. [Cisco CSRF documentation](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/cisco-sd-wan-api-cross-site-request-forgery-prevention.html)
+
+Only allowlisted evidence fields and source status travel to the Windows process through browser Native Messaging. Cisco session cookies, passwords, authorization headers and raw configurations stay out of the messages. Captures and chat stay in memory. Qwen has no mechanism for requesting new Manager data. Collection is capped at 1,500 inventory rows, 250 alarms and 250 rows per connection table, with partial or oversized responses identified. [Microsoft Edge Native Messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging)
+
+For deployment, setup writes `settings.json` and `edge-host.json` under `%LOCALAPPDATA%\SD-WAN Workstation` and registers `org.sdwan.workstation` in the current user’s `Software\Microsoft\Edge\NativeMessagingHosts` and `Software\Google\Chrome\NativeMessagingHosts` registry keys. The host permits only the packaged extension ID, `beapjnblokiomlppfhbidaaabofbolci`. IT should verify the extension identity when preparing a managed or store distribution. Removing the extension, both registrations and its settings folder removes the integration.
 
 ## Terminal mode with a personal API token
 

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-11-20
+
+- Named the Windows diagnostics app BlairScope and brought read-only local Qwen chat into the Edge and Chrome side panel.
+- Added a DevNet sandbox switch, a Cisco reservation sign-in link and per-environment Manager origin checks. Changing tabs or environments clears the previous capture and chat.
+
 ## [2.3.0] - 2026-11-20
 
 - Added a portable Windows x64 workstation with a CPU inference runtime for local GGUF models.
