@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-11-20
+
+- Added a portable Windows x64 workstation with a CPU inference runtime for local GGUF models.
+- Added an Edge extension that captures read-only evidence from a signed-in Cisco Manager tab and opens local Qwen chat. The terminal also supports per-user Manager API tokens.
+- Limited outage assessments to the inventory visible to the operator and corrected alarm counts for site-specific questions.
+- Consolidated MCP tool registration and diagnostic reporting. Fixed private configuration writes on Windows and protected existing client settings during installation.
+
 ## [2.2.0] - 2026-09-08
 
 ### Added

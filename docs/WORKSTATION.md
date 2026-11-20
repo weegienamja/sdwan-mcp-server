@@ -2,6 +2,8 @@
 
 Use your existing Qwen3.5-4B GGUF to ask about the devices visible to your own Cisco account. The workstation runs on one Windows x64 laptop. It includes Python and a CPU build of llama.cpp. The GGUF stays in your Downloads folder.
 
+The Windows app and Edge extension are distributed together. [Download the Windows x64 ZIP](https://github.com/weegienamja/sdwan-mcp-server/releases/latest/download/SD-WAN-Workstation-Windows-x64.zip)
+
 ## Sign in with Edge
 
 1. Extract **SD-WAN-Workstation-Windows-x64.zip** into a permanent local folder. Run **Set up Edge.cmd** once. Enter the exact HTTPS origin of your Manager and select your downloaded Qwen3.5-4B GGUF. This registers the local native messaging host for your Windows user. Run setup again after moving the kit or changing Manager or model.
@@ -17,7 +19,7 @@ For deployment, setup writes `settings.json` and `edge-host.json` under `%LOCALA
 
 ## Terminal mode with a personal API token
 
-1. Extract the entire **SD-WAN-Workstation-Windows-x64.zip** into a local folder. Keep the launcher, Python and llama folders together. Use the ZIP supplied by your IT team or the **windows-workstation** artifact for the reviewed commit in this repository's GitHub Actions CI run.
+1. Extract the entire **SD-WAN-Workstation-Windows-x64.zip** into a local folder. Keep the launcher, Python and llama folders together.
 2. Double-click **Start SD-WAN.cmd**. It looks for Qwen3.5-4B in your Downloads folder. If several GGUFs match, choose a model. If your Downloads folder is redirected or the filename differs, paste the full path. For split files, keep all the shards together and choose the first.
 3. Connect to your company network or VPN. Enter the HTTPS hostname of your Cisco Catalyst SD-WAN Manager. Check the displayed address, then open it in your browser from the prompt. Complete your normal SSO and MFA.
 4. In Manager, open **My Profile → API Token**. Copy your personal token, generating it if your company's policy allows and none exists. Paste it into the hidden terminal prompt. The app tests an inventory GET and shows how many devices your role can see. [Cisco's profile token guide](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/m-cisco-sd-wan-manager-jwt-based-authentication-for-apis.html)
