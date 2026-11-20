@@ -87,11 +87,13 @@ async def vmanage_check_version(
     if latest:
         lines.append(f"**Latest:**  v{latest}")
         if update_available:
-            lines.append("")
-            lines.append("An update is available. Upgrade with:")
-            lines.append("```")
-            lines.append("cd /path/to/cisco-vmanage-mcp && git pull && pip install -e .")
-            lines.append("```")
+            lines.extend([
+                "",
+                "An update is available. Upgrade with:",
+                "```",
+                "cd /path/to/cisco-vmanage-mcp && git pull && pip install -e .",
+                "```",
+            ])
         else:
             lines.append("")
             lines.append("You are running the latest version.")

@@ -317,13 +317,11 @@ async def vmanage_pre_change_validation(
                 lines.append(f"- [~] {w}")
             lines.append("")
 
-        lines.append("### Fabric Status")
-        lines.append(
-            f"- Controllers: {len(controllers) - len(unreachable_controllers)}/{len(controllers)} reachable"
-        )
-        lines.append(
-            f"- WAN Edges: {len(wan_edges) - len(unreachable_edges)}/{len(wan_edges)} reachable"
-        )
+        lines.extend([
+            "### Fabric Status",
+            f"- Controllers: {len(controllers) - len(unreachable_controllers)}/{len(controllers)} reachable",
+            f"- WAN Edges: {len(wan_edges) - len(unreachable_edges)}/{len(wan_edges)} reachable",
+        ])
         for sev in ["Critical", "Major", "Medium", "Minor"]:
             count = report.alarm_counts.get(sev, 0)
             if count > 0:
@@ -403,17 +401,18 @@ async def vmanage_incident_summary(
 
         else:
             # Detailed engineer summary
-            lines = ["## SD-WAN Incident Report (Engineer)", ""]
-
-            lines.append(f"**Fabric Health:** {fab.overall_health.value.upper()}")
-            lines.append(f"**Data Completeness:** {'Partial' if fab.partial else 'Full'}")
-            lines.append("")
-
-            lines.append("### Device Inventory")
-            lines.append(f"- Controllers: {len(controllers)} ({sum(1 for c in controllers if c.reachable)} reachable)")
-            lines.append(f"- WAN Edges: {len(wan_edges)} ({sum(1 for w in wan_edges if w.reachable)} reachable)")
-            lines.append(f"- Total BFD: {sum(d.bfd_sessions for d in wan_edges)}")
-            lines.append("")
+            lines = [
+                "## SD-WAN Incident Report (Engineer)",
+                "",
+                f"**Fabric Health:** {fab.overall_health.value.upper()}",
+                f"**Data Completeness:** {'Partial' if fab.partial else 'Full'}",
+                "",
+                "### Device Inventory",
+                f"- Controllers: {len(controllers)} ({sum(1 for c in controllers if c.reachable)} reachable)",
+                f"- WAN Edges: {len(wan_edges)} ({sum(1 for w in wan_edges if w.reachable)} reachable)",
+                f"- Total BFD: {sum(d.bfd_sessions for d in wan_edges)}",
+                "",
+            ]
 
             if unreachable:
                 lines.append("### Unreachable Devices")
@@ -433,10 +432,12 @@ async def vmanage_incident_summary(
                 lines.append("")
 
             if report.impact and report.impact.scope != "none":
-                lines.append("### Impact Assessment")
-                lines.append(f"- Scope: **{report.impact.scope}**")
-                lines.append(f"- {report.impact.estimated_user_impact}")
-                lines.append("")
+                lines.extend([
+                    "### Impact Assessment",
+                    f"- Scope: **{report.impact.scope}**",
+                    f"- {report.impact.estimated_user_impact}",
+                    "",
+                ])
 
             if report.root_causes:
                 lines.append("### Root-Cause Analysis")

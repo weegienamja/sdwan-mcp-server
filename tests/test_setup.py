@@ -108,8 +108,10 @@ def test_failed_config_replacement_preserves_previous_settings(tmp_path, monkeyp
         raise OSError("write failed")
 
     monkeypatch.setattr(private_files.os, "replace", fail_replace)
+    service = LocalSetupService(config_file)
+    values = _values()
     with pytest.raises(SetupError, match="Unable to save"):
-        LocalSetupService(config_file).save(_values())
+        service.save(values)
 
     assert config_file.read_text(encoding="utf-8") == "VMANAGE_HOST=previous\n"
     assert list(tmp_path.iterdir()) == [config_file]

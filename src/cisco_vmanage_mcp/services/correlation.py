@@ -286,20 +286,20 @@ def _build_narrative(
     wan_edges = [d for d in report.devices if d.device_type == "vedge"]
     controllers = [d for d in report.devices if d.device_type != "vedge"]
 
-    lines.append(f"## Fabric Health: {report.overall_health.value.upper()}")
-    lines.append("")
-
-    # Device summary
-    lines.append("### Devices")
-    lines.append(
-        f"- Controllers: {len(controllers)} "
-        f"({sum(1 for c in controllers if c.reachable)} reachable)"
-    )
-    lines.append(
-        f"- WAN Edges: {len(wan_edges)} "
-        f"({sum(1 for w in wan_edges if w.reachable)} reachable, "
-        f"{sum(1 for w in wan_edges if not w.reachable)} unreachable)"
-    )
+    lines.extend([
+        f"## Fabric Health: {report.overall_health.value.upper()}",
+        "",
+        "### Devices",
+        (
+            f"- Controllers: {len(controllers)} "
+            f"({sum(1 for c in controllers if c.reachable)} reachable)"
+        ),
+        (
+            f"- WAN Edges: {len(wan_edges)} "
+            f"({sum(1 for w in wan_edges if w.reachable)} reachable, "
+            f"{sum(1 for w in wan_edges if not w.reachable)} unreachable)"
+        ),
+    ])
 
     # Alarm summary
     if report.alarm_counts:
@@ -312,10 +312,12 @@ def _build_narrative(
 
     # Impact
     if impact and impact.scope != "none":
-        lines.append("")
-        lines.append("### Impact Assessment")
-        lines.append(f"- Scope: **{impact.scope}**")
-        lines.append(f"- {impact.estimated_user_impact}")
+        lines.extend([
+            "",
+            "### Impact Assessment",
+            f"- Scope: **{impact.scope}**",
+            f"- {impact.estimated_user_impact}",
+        ])
         if impact.affected_devices:
             lines.append(f"- Affected: {', '.join(impact.affected_devices)}")
 
@@ -390,14 +392,16 @@ async def diagnose_device(
 
     # Add device-specific section
     if device_health:
-        device_lines = ["\n### Device-Specific Analysis"]
-        device_lines.append(
-            f"**{device_health.hostname}** ({device_health.system_ip}) "
-            f"at site {device_health.site_id}"
-        )
-        device_lines.append(f"- Health: **{device_health.overall_health.value}**")
-        device_lines.append(f"- BFD Sessions: {device_health.bfd_sessions}")
-        device_lines.append(f"- Control Connections: {device_health.control_connections}")
+        device_lines = [
+            "\n### Device-Specific Analysis",
+            (
+                f"**{device_health.hostname}** ({device_health.system_ip}) "
+                f"at site {device_health.site_id}"
+            ),
+            f"- Health: **{device_health.overall_health.value}**",
+            f"- BFD Sessions: {device_health.bfd_sessions}",
+            f"- Control Connections: {device_health.control_connections}",
+        ]
 
         if device_health.signals:
             device_lines.append("\n**Signals:**")

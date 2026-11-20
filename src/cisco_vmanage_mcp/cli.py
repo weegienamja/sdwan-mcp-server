@@ -398,16 +398,17 @@ def _diagnosis_to_dict(diagnosis_result) -> dict:
 
 def _format_diagnosis(diagnosis_result) -> str:
     report, device = diagnosis_result
-    lines = []
     if device:
-        lines.append(f"Device Diagnosis: {device.hostname} ({device.system_ip})")
-        lines.append(f"  Site:             {device.site_id}")
-        lines.append(f"  Reachable:        {'Yes' if device.reachable else 'No'}")
-        lines.append(f"  Health:           {device.overall_health.value.upper()}")
-        lines.append(f"  BFD Sessions:     {device.bfd_sessions}")
-        lines.append(f"  Control Conns:    {device.control_connections}")
+        lines = [
+            f"Device Diagnosis: {device.hostname} ({device.system_ip})",
+            f"  Site:             {device.site_id}",
+            f"  Reachable:        {'Yes' if device.reachable else 'No'}",
+            f"  Health:           {device.overall_health.value.upper()}",
+            f"  BFD Sessions:     {device.bfd_sessions}",
+            f"  Control Conns:    {device.control_connections}",
+        ]
     else:
-        lines.append("No device data found.")
+        lines = ["No device data found."]
 
     if report.impact:
         lines.append(f"  Failure Scope:    {report.impact.scope}")

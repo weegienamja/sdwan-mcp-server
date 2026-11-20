@@ -23,6 +23,7 @@ from typing import Any
 from cisco_vmanage_mcp.utils.private_files import write_private_text
 
 logger = logging.getLogger("cisco_vmanage_mcp.ai_providers")
+_GEMINI_MODULE = "google.genai"
 
 # ── SSL / CA bundle (Cisco Umbrella SSL inspection workaround) ────────────────
 
@@ -121,7 +122,9 @@ def _provider_transport(sdk: ModuleType) -> Any:
     ca = provider_ca_bundle_path()
     if ca is None:
         return None
-    return sdk.DefaultHttpxClient(verify=ssl.create_default_context(cafile=ca))
+    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cafile=ca)
+    context.verify_mode = ssl.CERT_REQUIRED
+    return sdk.DefaultHttpxClient(verify=context)
 
 
 def create_claude_client(api_key: str) -> Any:
@@ -596,14 +599,14 @@ class GeminiProvider(AIProvider):
         if ca:
             os.environ.setdefault("SSL_CERT_FILE", ca)
             os.environ.setdefault("REQUESTS_CA_BUNDLE", ca)
-        genai = import_module("google.genai")
+        genai = import_module(_GEMINI_MODULE)
         self.genai_client: Any = genai.Client(api_key=api_key)
         self.model = "gemini-2.5-flash"
         self._tools: Any = self._convert_tools()
         self._chat: Any = None
 
     def _convert_tools(self) -> Any:
-        types = import_module("google.genai").types
+        types = import_module(_GEMINI_MODULE).types
         declarations = []
         for t in TOOL_DEFINITIONS:
             props = t["parameters"].get("properties", {})
@@ -625,7 +628,7 @@ class GeminiProvider(AIProvider):
         return [types.Tool(function_declarations=declarations)]
 
     def chat(self, user_message: str) -> str:
-        types = import_module("google.genai").types
+        types = import_module(_GEMINI_MODULE).types
 
         if self._chat is None:
             self._chat = self.genai_client.chats.create(
@@ -715,7 +718,7 @@ def _get_pip_package(provider_name: str) -> str:
 
 def _check_library(provider_name: str) -> bool:
     """Check if the required library is installed."""
-    modules = {"claude": "anthropic", "openai": "openai", "gemini": "google.genai"}
+    modules = {"claude": "anthropic", "openai": "openai", "gemini": _GEMINI_MODULE}
     if provider_name not in modules:
         return False
     try:
