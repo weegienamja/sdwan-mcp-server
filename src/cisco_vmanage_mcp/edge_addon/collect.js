@@ -6,6 +6,33 @@ export async function collectSnapshot(origin, spec, selected) {
   const ipv4 = value => typeof value === "string" && value.split(".").length === 4 &&
     value.split(".").every(part => /^(0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
   const empty = state => ({state, rows: []});
+  async function boundedBody(body) {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let text = "", size = 0;
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) return text + decoder.decode();
+      size += value.byteLength;
+      if (size > 6 * 1024 * 1024) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, {stream: true});
+    }
+  }
+  function project(row, fields) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("Invalid row");
+    const safe = {};
+    for (const field of fields) {
+      const value = row[field];
+      if (Number.isFinite(value) || (typeof value === "string" && value.length <= 128 &&
+          !/[\u0000-\u001f]/u.test(value))) {
+        safe[field] = value;
+      }
+    }
+    return safe;
+  }
   async function read(id, device) {
     const entry = spec[id];
     const url = new URL(entry.path, origin);
@@ -22,32 +49,11 @@ export async function collectSnapshot(origin, spec, selected) {
       const type = res.headers.get("content-type") || "";
       if (type.includes("text/html")) return empty("sign-in required");
       if (!type.includes("json")) return empty("unavailable");
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let text = "", size = 0;
-      for (;;) {
-        const {done, value} = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > 6 * 1024 * 1024) {
-          await reader.cancel();
-          return empty("response too large");
-        }
-        text += decoder.decode(value, {stream: true});
-      }
-      const payload = JSON.parse(text + decoder.decode());
+      const text = await boundedBody(res.body);
+      if (text === null) return empty("response too large");
+      const payload = JSON.parse(text);
       if (!Array.isArray(payload.data)) return empty("unavailable");
-      const rows = [];
-      for (const row of payload.data.slice(0, entry.limit)) {
-        if (!row || typeof row !== "object" || Array.isArray(row)) return empty("unavailable");
-        const safe = {};
-        for (const field of entry.fields) {
-          const value = row[field];
-          if (Number.isFinite(value)) safe[field] = value;
-          if (typeof value === "string" && value.length <= 128 && !/[\u0000-\u001f]/u.test(value)) safe[field] = value;
-        }
-        rows.push(safe);
-      }
+      const rows = payload.data.slice(0, entry.limit).map(row => project(row, entry.fields));
       const limited = payload.data.length > rows.length || payload.pageInfo?.hasMoreData === true;
       return {state: limited ? "partial" : "ok", rows};
     } catch {

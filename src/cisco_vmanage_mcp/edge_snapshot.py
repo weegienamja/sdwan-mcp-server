@@ -25,6 +25,20 @@ def _safe_row(row, fields):
     )
 
 
+def _validate_table(name: str, table: dict) -> None:
+    if not isinstance(table, dict) or table.keys() != {"state", "rows"}:
+        raise ValueError("Invalid source.")
+    state, rows = table["state"], table["rows"]
+    spec = READS[name]
+    if not isinstance(state, str) or state not in STATES or not isinstance(rows, list):
+        raise ValueError("Invalid source status.")
+    if state == "sign-in required":
+        raise ValueError("Sign in to Manager again and click Diagnose.")
+    if (len(rows) > spec["limit"] or (rows and state not in AVAILABLE)
+            or not all(_safe_row(row, spec["fields"]) for row in rows)):
+        raise ValueError("Invalid evidence fields.")
+
+
 def validate_capture(data: dict) -> dict:
     if not isinstance(data, dict) or data.keys() != {"captured", "selected", "tables"}:
         raise ValueError("Invalid snapshot.")
@@ -38,17 +52,7 @@ def validate_capture(data: dict) -> dict:
     if not isinstance(tables, dict) or tables.keys() != (ESTATE | DETAILS if selected else ESTATE):
         raise ValueError("Incomplete set of snapshot sources.")
     for name, table in tables.items():
-        if not isinstance(table, dict) or table.keys() != {"state", "rows"}:
-            raise ValueError("Invalid source.")
-        state, rows = table["state"], table["rows"]
-        spec = READS[name]
-        if not isinstance(state, str) or state not in STATES or not isinstance(rows, list):
-            raise ValueError("Invalid source status.")
-        if state == "sign-in required":
-            raise ValueError("Sign in to Manager again and click Diagnose.")
-        if (len(rows) > spec["limit"] or (rows and state not in AVAILABLE)
-                or not all(_safe_row(row, spec["fields"]) for row in rows)):
-            raise ValueError("Invalid evidence fields.")
+        _validate_table(name, table)
     inventory = tables["inventory"]
     if inventory["state"] not in AVAILABLE:
         raise ValueError("Inventory could not be read under this Cisco session.")
@@ -57,10 +61,8 @@ def validate_capture(data: dict) -> dict:
     return data
 
 
-def question_evidence(capture: dict, question: str) -> dict:
-    tables = capture["tables"]
-    devices = tables["inventory"]["rows"]
-    site = re.search(r"\bsite(?:\s++id)?[\s:#-]*+([0-9]++)\b", question, re.I)
+def _scope(devices: list[dict], question: str) -> tuple[list[dict], str | None, bool]:
+    site = re.search(r"\bsite(?:\s++id)?[\s:#-]*+(\d++)\b", question, re.I | re.ASCII)
     if site:
         devices = [d for d in devices if str(d.get("site-id")) == site[1]]
     target = re.search(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", question)
@@ -70,13 +72,19 @@ def question_evidence(capture: dict, question: str) -> dict:
         words = set(re.findall(r"[\w.-]+", question.casefold()))
         named = [d for d in devices if str(d.get("host-name", "")).casefold() in words]
         if named:
-            devices = named
+            return named, None, True
+    return devices, site[1] if site and not target else None, bool(site or target)
+
+
+def question_evidence(capture: dict, question: str) -> dict:
+    tables = capture["tables"]
+    devices, alarm_site, scoped = _scope(tables["inventory"]["rows"], question)
     matched_ips = {d["system-ip"] for d in devices if d.get("system-ip")}
     counts = Counter(str(device.get("reachability", "unknown")).lower() for device in devices)
     alarms = tables["alarms"]["rows"]
-    if site or target or len(devices) < len(tables["inventory"]["rows"]):
+    if scoped:
         alarms = [a for a in alarms if a.get("system-ip", a.get("system_ip")) in matched_ips or
-                  (site and not target and str(a.get("site-id", a.get("site_id"))) == site[1])]
+                  (alarm_site and str(a.get("site-id", a.get("site_id"))) == alarm_site)]
     if "unreachable" in question.lower():
         devices = [d for d in devices if str(d.get("reachability", "")).lower() == "unreachable"]
     if "critical" in question.lower():

@@ -49,6 +49,8 @@ def write_frame(stream: BinaryIO, data: dict) -> None:
 
 
 def install(kit: Path, origin: str, gguf: Path) -> None:
+    if sys.platform != "win32":
+        raise OSError("The Edge workstation kit requires Windows.")
     import winreg
 
     origin = str(manager_origin(origin)).rstrip("/")
@@ -68,36 +70,46 @@ def install(kit: Path, origin: str, gguf: Path) -> None:
         winreg.SetValueEx(key, "", 0, winreg.REG_SZ, str(manifest))
 
 
+class DiagnosticSession:
+    def __init__(self, kit: Path, settings: dict, stack: AsyncExitStack):
+        self.kit = kit
+        self.settings = settings
+        self.stack = stack
+        self.snapshot = None
+        self.model = None
+
+    async def handle(self, message: dict) -> dict:
+        kind = message.get("type")
+        if kind == "hello":
+            return {"type": "hello", "manager": self.settings["manager"]}
+        if kind == "clear":
+            self.snapshot = None
+            return {"type": "cleared"}
+        if kind == "capture":
+            self.snapshot = None
+            if message.get("origin") != self.settings["manager"]:
+                raise ValueError("Unexpected Manager origin.")
+            self.snapshot = validate_capture(message["snapshot"])
+            return {"type": "ready"}
+        if kind != "ask" or self.snapshot is None:
+            raise ValueError("Capture a Manager snapshot before asking a question.")
+        question = message.get("question")
+        if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
+            raise ValueError("Enter a question of up to 2,000 characters.")
+        if self.model is None:
+            self.model = await self.stack.enter_async_context(run_local_model(
+                self.kit / "llama" / "llama-server.exe", Path(self.settings["model"]),
+            ))
+        answer = await self.model.explain(question, question_evidence(self.snapshot, question))
+        return {"type": "answer", "answer": answer[:16000]}
+
+
 async def serve(kit: Path, settings: dict, source: BinaryIO, sink: BinaryIO) -> None:
-    snapshot = None
-    model = None
     async with AsyncExitStack() as stack:
+        session = DiagnosticSession(kit, settings, stack)
         while (message := await asyncio.to_thread(read_frame, source)) is not None:
-            kind = message.get("type")
             try:
-                if kind == "hello":
-                    reply = {"type": "hello", "manager": settings["manager"]}
-                elif kind == "clear":
-                    snapshot = None
-                    reply = {"type": "cleared"}
-                elif kind == "capture":
-                    snapshot = None
-                    if message.get("origin") != settings["manager"]:
-                        raise ValueError("Unexpected Manager origin.")
-                    snapshot = validate_capture(message["snapshot"])
-                    reply = {"type": "ready"}
-                elif kind == "ask" and snapshot is not None:
-                    question = message.get("question")
-                    if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
-                        raise ValueError("Enter a question of up to 2,000 characters.")
-                    if model is None:
-                        model = await stack.enter_async_context(run_local_model(
-                            kit / "llama" / "llama-server.exe", Path(settings["model"]),
-                        ))
-                    answer = await model.explain(question, question_evidence(snapshot, question))
-                    reply = {"type": "answer", "answer": answer[:16000]}
-                else:
-                    raise ValueError("Capture a Manager snapshot before asking a question.")
+                reply = await session.handle(message)
             except (ValueError, LocalModelError) as exc:
                 reply = {"type": "error", "error": str(exc)}
             except (KeyError, TypeError, OSError):

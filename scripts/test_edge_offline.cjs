@@ -3,13 +3,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const https = require("node:https");
 const os = require("node:os");
+const {randomUUID} = require("node:crypto");
 const path = require("node:path");
 const {spawnSync} = require("node:child_process");
 const {chromium} = require(process.env.PLAYWRIGHT_CORE || "playwright-core");
 const [kitArg, modelArg] = process.argv.slice(2);
 if (!kitArg || !modelArg) throw new Error("Supply the extracted kit and local GGUF paths.");
 const kit = path.resolve(kitArg), model = path.resolve(modelArg);
-const key = "HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\org.sdwan.workstation";
+const key = String.raw`HKCU\Software\Microsoft\Edge\NativeMessagingHosts\org.sdwan.workstation`;
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "sdwan-edge-test-"));
 const local = path.join(root, "local");
 const env = {...process.env, LOCALAPPDATA: local, PYTHONUTF8: "1"};
@@ -40,6 +41,7 @@ async function main() {
   const cert = run(python, ["-c", certScript, root]);
   assert.equal(cert.status, 0, cert.stderr);
   const calls = [];
+  const omittedCanary = randomUUID();
   let expired = false, denyInventory = false;
   const server = https.createServer({
     key: fs.readFileSync(path.join(root, "key.pem")), cert: fs.readFileSync(path.join(root, "cert.pem"))
@@ -60,7 +62,7 @@ async function main() {
     res.setHeader("content-type", "application/json");
     const tables = {
       "/dataservice/device": [{"host-name":"edge-fixture","system-ip":"192.0.2.14","site-id":100,
-        reachability:"unreachable","device-type":"vedge",password:"fixture-field-must-not-leave"}],
+        reachability:"unreachable","device-type":"vedge",password:omittedCanary}],
       "/dataservice/alarms/count": [{severity:"Critical",count:1}],
       "/dataservice/device/bfd/sessions": [{state:"down","system-ip":"192.0.2.3"}],
       "/dataservice/device/control/connections": [], "/dataservice/device/system/status": [{min5_avg:8}]
@@ -119,7 +121,7 @@ async function main() {
     await chat.waitForFunction(() => document.querySelector("#thread article") !== null, null, {timeout: 270000});
     const answer = await chat.locator("#thread").innerText();
     assert.match(answer, /edge-fixture/i);
-    assert.doesNotMatch(answer, /fixture-field-must-not-leave/);
+    assert.ok(!answer.includes(omittedCanary));
     assert.equal(calls.length, 9, "Qwen chat made another Manager request");
     denyInventory = true;
     await chat.locator("#refresh").click();
