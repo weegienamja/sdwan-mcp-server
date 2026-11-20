@@ -31,6 +31,7 @@ vmanage-mcp = "cisco_vmanage_mcp.cli:cli"
 vmanage-mcp-install = "cisco_vmanage_mcp.installer:main"
 vmanage-console = "cisco_vmanage_mcp.app:main"
 vmanage-web = "cisco_vmanage_mcp.webapp:main"
+vmanage-workstation = "cisco_vmanage_mcp.workstation:main"
 
 [build-system]
 requires = ["hatchling"]

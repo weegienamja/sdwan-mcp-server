@@ -9,6 +9,8 @@ A production-grade [Model Context Protocol](https://modelcontextprotocol.io/) se
 
 Launch the local browser workspace with `vmanage-web`, then open `http://127.0.0.1:8765`. Local mode enforces loopback at both startup and request time. Enterprise mode supports a single customer tenant behind an identity-aware HTTPS proxy and independently validates OIDC bearer tokens, trusted proxy addresses, public hosts, tenant claims, and application roles. See [Enterprise Deployment](docs/ENTERPRISE_DEPLOYMENT.md).
 
+For a Windows laptop with a downloaded **Qwen3.5-4B GGUF**, use the **Windows workstation kit**. Its guided launcher runs the model locally and reads Manager evidence with the operator's personal Cisco API token after browser SSO. The ZIP includes Python and the inference runtime. [Workstation setup and download instructions](docs/WORKSTATION.md)
+
 The current hardware-management scope is Cisco Catalyst SD-WAN through vManage. The roadmap defines separate adapters for other Cisco platforms; their APIs and semantics are not represented as supported today.
 
 ## Architecture

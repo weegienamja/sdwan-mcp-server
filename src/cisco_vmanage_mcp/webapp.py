@@ -341,12 +341,16 @@ class EvidenceAssistant:
         lowered = message.lower()
         system_ip = (match.group(0) if (match := SYSTEM_IP_PATTERN.search(message)) else None)
 
-        if system_ip and any(word in lowered for word in ("diagnose", "inspect", "investigate")):
+        if system_ip and any(word in lowered for word in (
+            "diagnose", "inspect", "investigate", "why", "down", "bfd", "control connection",
+        )):
             return await self._diagnose(system_ip)
+        site_match = re.search(r"\bsite(?:\s+id)?\s*[:#-]?\s*(\d+)\b", lowered)
+        site = site_match[1] if site_match else None
         if "alarm" in lowered or "alert" in lowered:
-            return await self._alarms(critical_only="critical" in lowered)
-        if "device" in lowered or "router" in lowered or "unreachable" in lowered:
-            return await self._devices(unreachable_only="unreachable" in lowered)
+            return await self._alarms(critical_only="critical" in lowered, site=site)
+        if site or any(word in lowered for word in ("device", "router", "unreachable", "inventory", "sites")):
+            return await self._devices(unreachable_only="unreachable" in lowered, site=site)
         if any(phrase in lowered for phrase in ("safe to", "pre-change", "make a change", "push")):
             return await self._change_readiness()
         return await self._health()
@@ -384,9 +388,11 @@ class EvidenceAssistant:
             ],
         }
 
-    async def _devices(self, *, unreachable_only: bool) -> dict[str, Any]:
+    async def _devices(self, *, unreachable_only: bool, site: str | None = None) -> dict[str, Any]:
         payload = await self.client.get("/dataservice/device")
         devices = payload.get("data", [])
+        if site is not None:
+            devices = [device for device in devices if str(device.get("site-id")) == site]
         if unreachable_only:
             devices = [
                 device
@@ -406,18 +412,27 @@ class EvidenceAssistant:
             for device in devices
         ]
         qualifier = "unreachable " if unreachable_only else ""
+        location = f" at site {site}" if site is not None else ""
         return {
             "kind": "devices",
             "status": "critical" if unreachable_only and normalized else "healthy",
-            "answer": f"I found {len(normalized)} {qualifier}device{'s' if len(normalized) != 1 else ''}.",
+            "answer": f"I found {len(normalized)} {qualifier}device{'s' if len(normalized) != 1 else ''}{location}.",
             "data": {"count": len(normalized), "items": normalized},
             "evidence": [{"label": "GET /dataservice/device", "state": "ok"}],
             "suggestions": ["Assess fabric health", "Show critical alarms"],
         }
 
-    async def _alarms(self, *, critical_only: bool) -> dict[str, Any]:
+    async def _alarms(self, *, critical_only: bool, site: str | None = None) -> dict[str, Any]:
         payload = await self.client.get("/dataservice/alarms")
         alarms = payload.get("data", [])
+        evidence = [{"label": "GET /dataservice/alarms", "state": "ok"}]
+        if site is not None:
+            inventory = await self.client.get("/dataservice/device")
+            ips = {row["system-ip"] for row in inventory.get("data", [])
+                   if str(row.get("site-id")) == site and row.get("system-ip")}
+            alarms = [row for row in alarms if str(row.get("site-id", row.get("site_id"))) == site
+                      or row.get("system-ip", row.get("system_ip")) in ips]
+            evidence.append({"label": "GET /dataservice/device", "state": "ok"})
         if critical_only:
             alarms = [alarm for alarm in alarms if alarm.get("severity", "").lower() == "critical"]
         normalized = [
@@ -435,13 +450,13 @@ class EvidenceAssistant:
             }
             for index, alarm in enumerate(alarms[:50])
         ]
-        critical = sum(1 for alarm in normalized if alarm["severity"].lower() == "critical")
+        critical = sum(1 for alarm in alarms if alarm.get("severity", "").lower() == "critical")
         return {
             "kind": "alarms",
             "status": "critical" if critical else "healthy",
-            "answer": f"I found {len(normalized)} matching alarms, including {critical} critical.",
-            "data": {"count": len(normalized), "items": normalized},
-            "evidence": [{"label": "GET /dataservice/alarms", "state": "ok"}],
+            "answer": f"I found {len(alarms)} matching alarms, including {critical} critical.",
+            "data": {"count": len(alarms), "items": normalized},
+            "evidence": evidence,
             "suggestions": ["Assess fabric health", "Show unreachable devices"],
         }
 
