@@ -8,6 +8,7 @@ import pytest
 
 from cisco_vmanage_mcp.services.investigations import Investigation
 from cisco_vmanage_mcp.services.workflows import WorkflowStore
+from tests.permissions import assert_private_permissions
 
 NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
@@ -64,8 +65,8 @@ def test_workflow_drafts_are_sanitized_immutable_and_idempotent(tmp_path, destin
     assert "must-redact" not in str(first.model_dump())
     assert first.preview
     assert b"Site 100 control outage" not in store.database_path.read_bytes()
-    assert store.database_path.stat().st_mode & 0o777 == 0o600
-    assert store.key_path.stat().st_mode & 0o777 == 0o600
+    assert_private_permissions(store.database_path, 0o600)
+    assert_private_permissions(store.key_path, 0o600)
 
 
 def test_workflow_approval_is_bound_to_exact_content_hash(tmp_path) -> None:

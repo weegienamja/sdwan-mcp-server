@@ -10,6 +10,7 @@ from cisco_vmanage_mcp.services.deployment import (
     WebDeploymentSettings,
     bind_state_directory,
 )
+from tests.permissions import assert_private_permissions
 
 
 def test_local_mode_defaults_to_loopback(monkeypatch) -> None:
@@ -88,7 +89,7 @@ def test_state_directory_is_bound_to_one_auth_mode_and_tenant(tmp_path) -> None:
 
     assert bind_state_directory(local) == state_dir
     assert bind_state_directory(local) == state_dir
-    assert (state_dir / ".deployment.json").stat().st_mode & 0o777 == 0o600
+    assert_private_permissions(state_dir / ".deployment.json", 0o600)
 
     oidc = WebDeploymentSettings(
         auth_mode="oidc",

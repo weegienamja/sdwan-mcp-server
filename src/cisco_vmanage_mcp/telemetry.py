@@ -25,13 +25,13 @@ import logging
 import os
 import secrets
 import threading
-import time
-from collections.abc import Callable
 from datetime import UTC, datetime
-from functools import wraps
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+
+from cisco_vmanage_mcp import __version__
+from cisco_vmanage_mcp.utils.private_files import write_private_text
 
 logger = logging.getLogger("cisco_vmanage_mcp.telemetry")
 
@@ -57,34 +57,19 @@ def _get_splunk_config() -> tuple[str, str] | None:
 def _installation_id() -> str:
     """Return a random installation ID without deriving it from user data."""
     try:
-        INSTALLATION_ID_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        INSTALLATION_ID_FILE.parent.chmod(0o700)
         if INSTALLATION_ID_FILE.exists():
             existing = INSTALLATION_ID_FILE.read_text(encoding="ascii").strip()
             if len(existing) == 64 and all(char in "0123456789abcdef" for char in existing):
-                INSTALLATION_ID_FILE.chmod(0o600)
+                if os.name != "nt":
+                    INSTALLATION_ID_FILE.parent.chmod(0o700)
+                    INSTALLATION_ID_FILE.chmod(0o600)
                 return existing
 
         installation_id = secrets.token_hex(32)
-        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(INSTALLATION_ID_FILE, flags, 0o600)
-        try:
-            os.fchmod(descriptor, 0o600)
-            os.write(descriptor, (installation_id + "\n").encode("ascii"))
-        finally:
-            os.close(descriptor)
+        write_private_text(INSTALLATION_ID_FILE, installation_id + "\n", restrict_parent=True)
         return installation_id
     except OSError:
         return _EPHEMERAL_INSTALLATION_ID
-
-
-def _get_version() -> str:
-    """Get the current server version."""
-    try:
-        from cisco_vmanage_mcp import __version__
-        return __version__
-    except ImportError:
-        return "unknown"
 
 
 def _build_event(
@@ -98,7 +83,7 @@ def _build_event(
         "installation_id": _installation_id(),
         "duration_ms": round(duration_ms, 2),
         "success": success,
-        "server_version": _get_version(),
+        "server_version": __version__,
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
@@ -158,57 +143,6 @@ def emit_tool_event(tool_name: str, duration_ms: float, success: bool) -> None:
         logger.debug("Telemetry event creation failed (silently ignored).", exc_info=True)
 
 
-def track_telemetry(tool_name: str | None = None) -> Callable:
-    """Decorator that emits a telemetry event for each tool call.
-
-    Can be used alongside the existing @audit_tool decorator:
-
-        @mcp.tool(...)
-        @audit_tool("vmanage_some_tool")
-        @track_telemetry("vmanage_some_tool")
-        async def vmanage_some_tool(...):
-            ...
-
-    If tool_name is not provided, uses the decorated function's name.
-    """
-    def decorator(func: Callable) -> Callable:
-        name = tool_name or func.__name__
-
-        @wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            start = time.monotonic()
-            success = True
-            try:
-                result = await func(*args, **kwargs)
-                return result
-            except Exception:
-                success = False
-                raise
-            finally:
-                duration_ms = (time.monotonic() - start) * 1000
-                emit_tool_event(name, duration_ms, success)
-
-        @wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            start = time.monotonic()
-            success = True
-            try:
-                result = func(*args, **kwargs)
-                return result
-            except Exception:
-                success = False
-                raise
-            finally:
-                duration_ms = (time.monotonic() - start) * 1000
-                emit_tool_event(name, duration_ms, success)
-
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        return sync_wrapper
-
-    return decorator
-
-
 async def initialize_ide_telemetry() -> None:
     """Initialize Cisco IDE telemetry when explicitly enabled."""
     global _ide_client
@@ -221,7 +155,7 @@ async def initialize_ide_telemetry() -> None:
         config = sdk.TelemetryConfig(
             mcp_server_name="cisco-vmanage-mcp",
             mcp_marketplace_id=os.getenv("IDE_MCP_MARKETPLACE_ID"),
-            version=_get_version(),
+            version=__version__,
             group_name=os.getenv("IDE_TELEMETRY_GROUP"),
             app_name=os.getenv("IDE_TELEMETRY_APP"),
         )

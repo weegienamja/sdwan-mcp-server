@@ -16,6 +16,7 @@ from cisco_vmanage_mcp.services.governance import (
     default_read_only_agents,
 )
 from cisco_vmanage_mcp.services.investigations import Investigation
+from tests.permissions import assert_private_permissions
 
 NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
@@ -46,9 +47,9 @@ def test_collaboration_timeline_is_encrypted_private_and_revisioned(tmp_path) ->
     assert viewed is not None
     assert viewed.events[-1].body == "Investigating token=***REDACTED***"
     assert b"Investigating" not in store.database_path.read_bytes()
-    assert store.database_path.stat().st_mode & 0o777 == 0o600
-    assert store.key_path.stat().st_mode & 0o777 == 0o600
-    assert store.state_dir.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(store.database_path, 0o600)
+    assert_private_permissions(store.key_path, 0o600)
+    assert_private_permissions(store.state_dir, 0o700)
 
 
 def test_tenant_isolation_and_role_policy(tmp_path) -> None:

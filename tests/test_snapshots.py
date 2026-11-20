@@ -25,6 +25,7 @@ from cisco_vmanage_mcp.services.snapshots import (
     configuration_digest,
     snapshot_freshness,
 )
+from tests.permissions import assert_private_permissions
 
 NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
@@ -82,9 +83,10 @@ def _snapshot(
 
 def test_snapshot_store_encrypts_prunes_and_uses_private_permissions(tmp_path) -> None:
     store = SnapshotStore(tmp_path / "state", retention_days=30, max_snapshots=2)
-    old = _snapshot("old", NOW - timedelta(days=31))
-    first = _snapshot("first", NOW - timedelta(hours=1))
-    second = _snapshot("second", NOW)
+    now = datetime.now(UTC)
+    old = _snapshot("old", now - timedelta(days=31))
+    first = _snapshot("first", now - timedelta(hours=1))
+    second = _snapshot("second", now)
 
     store.add(old)
     store.add(first)
@@ -93,14 +95,14 @@ def test_snapshot_store_encrypts_prunes_and_uses_private_permissions(tmp_path) -
     assert [snapshot.id for snapshot in store.list()] == ["second", "first"]
     assert store.get("old") is None
     assert b"edge-1" not in store.database_path.read_bytes()
-    assert store.database_path.stat().st_mode & 0o777 == 0o600
-    assert store.key_path.stat().st_mode & 0o777 == 0o600
-    assert store.state_dir.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(store.database_path, 0o600)
+    assert_private_permissions(store.key_path, 0o600)
+    assert_private_permissions(store.state_dir, 0o700)
 
 
 def test_snapshot_store_quarantines_corrupt_payload(tmp_path) -> None:
     store = SnapshotStore(tmp_path / "state")
-    store.add(_snapshot("corrupt-me", NOW))
+    store.add(_snapshot("corrupt-me", datetime.now(UTC)))
     with closing(sqlite3.connect(store.database_path)) as connection:
         with connection:
             connection.execute(

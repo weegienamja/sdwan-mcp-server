@@ -14,6 +14,7 @@ from cisco_vmanage_mcp.services.persistence import (
     prepare_private_directory,
     private_sqlite_connection,
 )
+from tests.permissions import assert_private_permissions
 
 
 class PersistenceError(RuntimeError):
@@ -46,8 +47,8 @@ def test_private_key_is_created_once_and_reused(tmp_path) -> None:
 
     encrypted = first.encrypt(b"evidence")
     assert second.decrypt(encrypted) == b"evidence"
-    assert state_dir.stat().st_mode & 0o777 == 0o700
-    assert key_path.stat().st_mode & 0o777 == 0o600
+    assert_private_permissions(state_dir, 0o700)
+    assert_private_permissions(key_path, 0o600)
 
 
 def test_invalid_key_uses_domain_error(tmp_path) -> None:
@@ -72,7 +73,7 @@ def test_private_sqlite_connection_commits_and_closes(tmp_path) -> None:
         connection.execute("INSERT INTO evidence VALUES ('stored')")
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 
-    assert database_path.stat().st_mode & 0o777 == 0o600
+    assert_private_permissions(database_path, 0o600)
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
         connection.execute("SELECT 1")
     with closing(sqlite3.connect(database_path)) as verification:

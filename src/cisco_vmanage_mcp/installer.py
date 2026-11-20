@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from cisco_vmanage_mcp.utils.private_files import write_private_text
+
 CONFIG_DIR = Path.home() / ".vmanage-mcp"
 CREDENTIALS_FILE = CONFIG_DIR / "vmanage.env"
 
@@ -63,15 +65,8 @@ def _detect_claude_code() -> bool:
 
 # --- Config generation ---
 
-def _build_server_config(
-    host: str,
-    port: str,
-    username: str,
-    password: str,
-    verify_ssl: str,
-) -> dict[str, Any]:
-    """Build an MCP config that references, but does not contain, credentials."""
-    del host, port, username, password, verify_ssl
+def _build_server_config() -> dict[str, Any]:
+    """Build an MCP config that points the client at the credentials file."""
     python_path = sys.executable
     return {
         "command": python_path,
@@ -84,28 +79,11 @@ def _build_server_config(
 
 def _merge_config(existing: dict[str, Any], server_config: dict[str, Any]) -> dict[str, Any]:
     """Merge the cisco-vmanage server config into an existing config file."""
-    if "mcpServers" not in existing:
-        existing["mcpServers"] = {}
-    existing["mcpServers"]["cisco-vmanage"] = server_config
+    servers = existing.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise ValueError("mcpServers must be a JSON object")
+    servers["cisco-vmanage"] = server_config
     return existing
-
-
-# --- Validation ---
-
-def _validate_environment() -> list[str]:
-    """Check that Python and the package are installed correctly."""
-    errors: list[str] = []
-
-    # Check package is importable
-    try:
-        import cisco_vmanage_mcp  # noqa: F401
-    except ImportError:
-        errors.append(
-            "cisco-vmanage-mcp package not found. "
-            "Install with: pip install -e ."
-        )
-
-    return errors
 
 
 # --- Interactive prompts ---
@@ -195,23 +173,6 @@ def _prompt_client_selection(available: dict[str, Path], claude_code: bool) -> t
 
 # --- Writers ---
 
-def _write_private_text(path: Path, content: str, restrict_parent: bool = False) -> None:
-    """Write a regular file without exposing its contents to other users."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if restrict_parent:
-        path.parent.chmod(0o700)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags, 0o600)
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            descriptor = -1
-            output.write(content)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-
-
 def _dotenv_quote(value: str) -> str:
     """Quote a value for python-dotenv without permitting line injection."""
     if "\n" in value or "\r" in value:
@@ -237,32 +198,30 @@ def _write_credentials_file(creds: dict[str, str], dry_run: bool) -> None:
         print(f"\n[DRY RUN] Would write credentials securely to {CREDENTIALS_FILE}")
         return
 
-    _write_private_text(CREDENTIALS_FILE, content, restrict_parent=True)
+    write_private_text(CREDENTIALS_FILE, content, restrict_parent=True)
     print(f"Wrote credentials securely to {CREDENTIALS_FILE}")
 
 def _write_json_config(path: Path, server_config: dict[str, Any], dry_run: bool) -> None:
     """Write or merge server config into a JSON config file."""
-    existing: dict[str, Any] = {}
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        existing = {}
+    if not isinstance(existing, dict):
+        raise ValueError("client configuration must be a JSON object")
     merged = _merge_config(existing, server_config)
-    output = json.dumps(merged, indent=2)
 
     if dry_run:
-        print(f"\n[DRY RUN] Would write to {path}:")
-        print(output)
-    else:
-        _write_private_text(path, output + "\n")
-        print(f"Wrote config to {path}")
+        print(f"\n[DRY RUN] Would register cisco-vmanage in {path}:")
+        print(json.dumps(server_config, indent=2))
+        return
+
+    write_private_text(path, json.dumps(merged, indent=2) + "\n")
+    print(f"Wrote config to {path}")
 
 
-def _configure_claude_code(creds: dict[str, str], dry_run: bool) -> None:
+def _configure_claude_code(dry_run: bool) -> None:
     """Configure Claude Code via its CLI."""
-    del creds
 
     python_path = sys.executable
     cmd = [
@@ -325,15 +284,6 @@ def main(args: list[str] | None = None) -> None:
     print("cisco-vmanage-mcp installer")
     print("=" * 40)
 
-    # Validate environment
-    errors = _validate_environment()
-    if errors:
-        print("\nEnvironment validation failed:")
-        for err in errors:
-            print(f"  - {err}")
-        sys.exit(1)
-    print("Environment OK: Python and package validated.")
-
     # Detect clients
     client_configs = _get_client_configs()
     claude_code = _detect_claude_code()
@@ -350,23 +300,21 @@ def main(args: list[str] | None = None) -> None:
     _write_credentials_file(creds, dry_run)
 
     # Build config
-    server_config = _build_server_config(
-        host=creds["host"],
-        port=creds["port"],
-        username=creds["username"],
-        password=creds["password"],
-        verify_ssl=creds["verify_ssl"],
-    )
+    server_config = _build_server_config()
 
     # Write configs
     for client_name in json_clients:
         if client_name == "__manual__":
             _print_manual_config(server_config)
         elif client_name in client_configs:
-            _write_json_config(client_configs[client_name], server_config, dry_run)
+            path = client_configs[client_name]
+            try:
+                _write_json_config(path, server_config, dry_run)
+            except (OSError, ValueError) as exc:
+                parser.exit(1, f"Could not update {path}: {exc}\n")
 
     if configure_cc:
-        _configure_claude_code(creds, dry_run)
+        _configure_claude_code(dry_run)
 
     if not dry_run:
         print("\nDone! Restart your MCP client(s) to pick up the new configuration.")

@@ -11,16 +11,11 @@ import json
 import logging
 import sys
 import time
-from pathlib import Path
 
 import click
-from dotenv import load_dotenv
 
 from cisco_vmanage_mcp.client import VManageClient, VManageError
 
-# Load .env from project root
-_project_root = Path(__file__).resolve().parent.parent.parent
-load_dotenv(_project_root / ".env")
 
 def _setup_logging(verbose: bool) -> None:
     """Configure logging based on verbosity."""
@@ -33,11 +28,6 @@ def _setup_logging(verbose: bool) -> None:
     if not verbose:
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-
-def _run_async(coro):
-    """Run an async coroutine synchronously."""
-    return asyncio.run(coro)
 
 
 def _output(data, as_json: bool, formatter):
@@ -55,7 +45,6 @@ def _output(data, as_json: bool, formatter):
 def cli(ctx, verbose: bool, as_json: bool):
     """Cisco vManage MCP - CLI companion tool."""
     ctx.ensure_object(dict)
-    ctx.obj["verbose"] = verbose
     ctx.obj["as_json"] = as_json
     _setup_logging(verbose)
 
@@ -89,7 +78,7 @@ def status(ctx):
             await client.close()
 
     try:
-        result = _run_async(_status())
+        result = asyncio.run(_status())
         _output(result, as_json, _format_status)
     except VManageError as e:
         _error_exit(str(e), as_json)
@@ -143,7 +132,7 @@ def devices(ctx, device_type: str | None, reachability: str | None, limit: int):
             await client.close()
 
     try:
-        result = _run_async(_devices())
+        result = asyncio.run(_devices())
         _output(result, as_json, _format_devices)
     except VManageError as e:
         _error_exit(str(e), as_json)
@@ -183,7 +172,7 @@ def health(ctx):
             await client.close()
 
     try:
-        report = _run_async(_health())
+        report = asyncio.run(_health())
         if as_json:
             click.echo(json.dumps(_correlation_report_to_dict(report), indent=2, default=str))
         else:
@@ -328,7 +317,7 @@ def alarms(ctx, severity: str | None, hours_back: int, limit: int):
             await client.close()
 
     try:
-        result = _run_async(_alarms())
+        result = asyncio.run(_alarms())
         _output(result, as_json, _format_alarms)
     except VManageError as e:
         _error_exit(str(e), as_json)
@@ -369,7 +358,7 @@ def diagnose(ctx, system_ip: str):
             await client.close()
 
     try:
-        report = _run_async(_diagnose())
+        report = asyncio.run(_diagnose())
         if as_json:
             click.echo(json.dumps(_diagnosis_to_dict(report), indent=2, default=str))
         else:
@@ -409,16 +398,17 @@ def _diagnosis_to_dict(diagnosis_result) -> dict:
 
 def _format_diagnosis(diagnosis_result) -> str:
     report, device = diagnosis_result
-    lines = []
     if device:
-        lines.append(f"Device Diagnosis: {device.hostname} ({device.system_ip})")
-        lines.append(f"  Site:             {device.site_id}")
-        lines.append(f"  Reachable:        {'Yes' if device.reachable else 'No'}")
-        lines.append(f"  Health:           {device.overall_health.value.upper()}")
-        lines.append(f"  BFD Sessions:     {device.bfd_sessions}")
-        lines.append(f"  Control Conns:    {device.control_connections}")
+        lines = [
+            f"Device Diagnosis: {device.hostname} ({device.system_ip})",
+            f"  Site:             {device.site_id}",
+            f"  Reachable:        {'Yes' if device.reachable else 'No'}",
+            f"  Health:           {device.overall_health.value.upper()}",
+            f"  BFD Sessions:     {device.bfd_sessions}",
+            f"  Control Conns:    {device.control_connections}",
+        ]
     else:
-        lines.append("No device data found.")
+        lines = ["No device data found."]
 
     if report.impact:
         lines.append(f"  Failure Scope:    {report.impact.scope}")
@@ -475,7 +465,7 @@ def smoke_test(ctx):
         finally:
             await client.close()
 
-    result = _run_async(_smoke())
+    result = asyncio.run(_smoke())
 
     if as_json:
         click.echo(json.dumps(result, indent=2))
@@ -513,7 +503,7 @@ def qualify(ctx, concurrency: int) -> None:
             await client.close()
 
     try:
-        report = _run_async(_qualify())
+        report = asyncio.run(_qualify())
     except VManageError as exc:
         _error_exit(str(exc), ctx.obj["as_json"])
         return

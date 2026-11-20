@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from cisco_vmanage_mcp import installer
+from tests.permissions import assert_private_permissions
 
 CREDS = {
     "host": "vmanage.example.test",
@@ -26,7 +27,7 @@ def test_server_config_references_credential_file_without_secrets(
     credentials_file = tmp_path / "vmanage.env"
     monkeypatch.setattr(installer, "CREDENTIALS_FILE", credentials_file, raising=False)
 
-    config = installer._build_server_config(**CREDS)
+    config = installer._build_server_config()
     serialized = json.dumps(config)
 
     assert CREDS["password"] not in serialized
@@ -42,8 +43,8 @@ def test_credentials_file_is_owner_only(monkeypatch, tmp_path) -> None:
 
     contents = credentials_file.read_text(encoding="utf-8")
     assert "VMANAGE_PASSWORD='super-secret-password'" in contents
-    assert credentials_file.stat().st_mode & 0o777 == 0o600
-    assert credentials_file.parent.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(credentials_file, 0o600)
+    assert_private_permissions(credentials_file.parent, 0o700)
 
 
 def test_installer_dry_run_never_prints_password(monkeypatch, capsys) -> None:
@@ -55,7 +56,7 @@ def test_installer_dry_run_never_prints_password(monkeypatch, capsys) -> None:
     )
 
     installer._write_credentials_file(CREDS, dry_run=True)
-    installer._configure_claude_code(CREDS, dry_run=True)
+    installer._configure_claude_code(dry_run=True)
 
     assert CREDS["password"] not in capsys.readouterr().out
 
@@ -71,7 +72,7 @@ def test_claude_code_command_contains_no_credentials(monkeypatch, tmp_path) -> N
 
     monkeypatch.setattr(installer.subprocess, "run", fake_run)
 
-    installer._configure_claude_code(CREDS, dry_run=False)
+    installer._configure_claude_code(dry_run=False)
 
     command = " ".join(captured["command"])
     assert CREDS["password"] not in command
@@ -88,7 +89,7 @@ def test_written_client_config_is_owner_only(tmp_path) -> None:
         dry_run=False,
     )
 
-    assert config_path.stat().st_mode & 0o777 == 0o600
+    assert_private_permissions(config_path, 0o600)
 
 
 @pytest.mark.parametrize("system", ["Darwin", "Linux", "Windows"])
@@ -206,7 +207,7 @@ def test_dotenv_quote_escapes_values_and_rejects_newlines() -> None:
         installer._dotenv_quote("first\nsecond")
 
 
-def test_json_config_merges_existing_and_recovers_invalid(tmp_path) -> None:
+def test_json_config_merges_existing(tmp_path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"mcpServers": {"other": {"command": "other"}}}),
@@ -217,10 +218,29 @@ def test_json_config_merges_existing_and_recovers_invalid(tmp_path) -> None:
     merged = json.loads(config_path.read_text(encoding="utf-8"))
     assert set(merged["mcpServers"]) == {"other", "cisco-vmanage"}
 
-    config_path.write_text("not json", encoding="utf-8")
-    installer._write_json_config(config_path, {"command": "python"}, dry_run=False)
-    recovered = json.loads(config_path.read_text(encoding="utf-8"))
-    assert recovered["mcpServers"]["cisco-vmanage"]["command"] == "python"
+
+@pytest.mark.parametrize("content", ["not json", "[]", '{"mcpServers": []}'])
+def test_installer_preserves_invalid_client_config(tmp_path, content) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        installer._write_json_config(config_path, {"command": "python"}, dry_run=False)
+
+    assert config_path.read_text(encoding="utf-8") == content
+
+
+def test_config_preview_omits_other_clients_credentials(tmp_path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    content = '{"mcpServers": {"other": {"env": {"TOKEN": "private-value"}}}}'
+    config_path.write_text(content, encoding="utf-8")
+
+    installer._write_json_config(config_path, {"command": "python"}, dry_run=True)
+
+    output = capsys.readouterr().out
+    assert "cisco-vmanage" in output
+    assert "private-value" not in output
+    assert config_path.read_text(encoding="utf-8") == content
 
 
 @pytest.mark.parametrize(
@@ -244,7 +264,7 @@ def test_claude_code_failures_are_reported(
 
     monkeypatch.setattr(installer.subprocess, "run", fake_run)
 
-    installer._configure_claude_code(CREDS, dry_run=False)
+    installer._configure_claude_code(dry_run=False)
 
     assert expected in capsys.readouterr().out
 
@@ -252,7 +272,6 @@ def test_claude_code_failures_are_reported(
 def test_main_dry_run_orchestrates_selected_clients(monkeypatch, tmp_path) -> None:
     client_path = tmp_path / "client.json"
     calls: list[tuple] = []
-    monkeypatch.setattr(installer, "_validate_environment", lambda: [])
     monkeypatch.setattr(
         installer,
         "_get_client_configs",
@@ -283,7 +302,7 @@ def test_main_dry_run_orchestrates_selected_clients(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(
         installer,
         "_configure_claude_code",
-        lambda _creds, dry_run: calls.append(("claude", dry_run)),
+        lambda dry_run: calls.append(("claude", dry_run)),
     )
 
     installer.main(["--dry-run"])

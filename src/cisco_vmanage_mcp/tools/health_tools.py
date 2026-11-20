@@ -4,9 +4,7 @@ import json
 
 from mcp.server.fastmcp import Context
 
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
-from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
     _safe_str,
@@ -16,10 +14,6 @@ from cisco_vmanage_mcp.utils.formatters import (
 )
 
 
-@mcp.tool(
-    name="vmanage_get_system_status",
-    annotations=read_only_annotations("Get System Status"),
-)
 @audit_tool("vmanage_get_system_status")
 async def vmanage_get_system_status(
     system_ip: str,
@@ -66,10 +60,6 @@ async def vmanage_get_system_status(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_control_status",
-    annotations=read_only_annotations("Get Control Connections"),
-)
 @audit_tool("vmanage_get_control_status")
 async def vmanage_get_control_status(
     system_ip: str,
@@ -116,10 +106,6 @@ async def vmanage_get_control_status(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_fabric_summary",
-    annotations=read_only_annotations("Get Fabric Summary"),
-)
 @audit_tool("vmanage_get_fabric_summary")
 async def vmanage_get_fabric_summary(
     ctx: Context,

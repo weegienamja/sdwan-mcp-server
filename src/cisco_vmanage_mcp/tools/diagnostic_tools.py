@@ -16,20 +16,14 @@ import json
 
 from mcp.server.fastmcp import Context
 
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
 from cisco_vmanage_mcp.services.correlation import correlate_fabric_state, diagnose_device
 from cisco_vmanage_mcp.services.health_check import (
     assess_fabric_health,
 )
-from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
-@mcp.tool(
-    name="vmanage_assess_fabric_health",
-    annotations=read_only_annotations("Assess Fabric Health (Correlated)"),
-)
 @audit_tool("vmanage_assess_fabric_health")
 async def vmanage_assess_fabric_health(
     ctx: Context,
@@ -119,10 +113,6 @@ async def vmanage_assess_fabric_health(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_diagnose_device",
-    annotations=read_only_annotations("Diagnose Device (Deep Analysis)"),
-)
 @audit_tool("vmanage_diagnose_device")
 async def vmanage_diagnose_device(
     system_ip: str,
@@ -209,10 +199,6 @@ async def vmanage_diagnose_device(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_pre_change_validation",
-    annotations=read_only_annotations("Pre-Change Validation"),
-)
 @audit_tool("vmanage_pre_change_validation")
 async def vmanage_pre_change_validation(
     ctx: Context,
@@ -331,13 +317,11 @@ async def vmanage_pre_change_validation(
                 lines.append(f"- [~] {w}")
             lines.append("")
 
-        lines.append("### Fabric Status")
-        lines.append(
-            f"- Controllers: {len(controllers) - len(unreachable_controllers)}/{len(controllers)} reachable"
-        )
-        lines.append(
-            f"- WAN Edges: {len(wan_edges) - len(unreachable_edges)}/{len(wan_edges)} reachable"
-        )
+        lines.extend([
+            "### Fabric Status",
+            f"- Controllers: {len(controllers) - len(unreachable_controllers)}/{len(controllers)} reachable",
+            f"- WAN Edges: {len(wan_edges) - len(unreachable_edges)}/{len(wan_edges)} reachable",
+        ])
         for sev in ["Critical", "Major", "Medium", "Minor"]:
             count = report.alarm_counts.get(sev, 0)
             if count > 0:
@@ -355,10 +339,6 @@ async def vmanage_pre_change_validation(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_incident_summary",
-    annotations=read_only_annotations("Incident Summary"),
-)
 @audit_tool("vmanage_incident_summary")
 async def vmanage_incident_summary(
     ctx: Context,
@@ -421,17 +401,18 @@ async def vmanage_incident_summary(
 
         else:
             # Detailed engineer summary
-            lines = ["## SD-WAN Incident Report (Engineer)", ""]
-
-            lines.append(f"**Fabric Health:** {fab.overall_health.value.upper()}")
-            lines.append(f"**Data Completeness:** {'Partial' if fab.partial else 'Full'}")
-            lines.append("")
-
-            lines.append("### Device Inventory")
-            lines.append(f"- Controllers: {len(controllers)} ({sum(1 for c in controllers if c.reachable)} reachable)")
-            lines.append(f"- WAN Edges: {len(wan_edges)} ({sum(1 for w in wan_edges if w.reachable)} reachable)")
-            lines.append(f"- Total BFD: {sum(d.bfd_sessions for d in wan_edges)}")
-            lines.append("")
+            lines = [
+                "## SD-WAN Incident Report (Engineer)",
+                "",
+                f"**Fabric Health:** {fab.overall_health.value.upper()}",
+                f"**Data Completeness:** {'Partial' if fab.partial else 'Full'}",
+                "",
+                "### Device Inventory",
+                f"- Controllers: {len(controllers)} ({sum(1 for c in controllers if c.reachable)} reachable)",
+                f"- WAN Edges: {len(wan_edges)} ({sum(1 for w in wan_edges if w.reachable)} reachable)",
+                f"- Total BFD: {sum(d.bfd_sessions for d in wan_edges)}",
+                "",
+            ]
 
             if unreachable:
                 lines.append("### Unreachable Devices")
@@ -451,10 +432,12 @@ async def vmanage_incident_summary(
                 lines.append("")
 
             if report.impact and report.impact.scope != "none":
-                lines.append("### Impact Assessment")
-                lines.append(f"- Scope: **{report.impact.scope}**")
-                lines.append(f"- {report.impact.estimated_user_impact}")
-                lines.append("")
+                lines.extend([
+                    "### Impact Assessment",
+                    f"- Scope: **{report.impact.scope}**",
+                    f"- {report.impact.estimated_user_impact}",
+                    "",
+                ])
 
             if report.root_causes:
                 lines.append("### Root-Cause Analysis")

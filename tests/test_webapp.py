@@ -33,6 +33,7 @@ from cisco_vmanage_mcp.services.setup import (
 from cisco_vmanage_mcp.services.snapshots import SnapshotStore
 from cisco_vmanage_mcp.services.workflows import WorkflowStore
 from cisco_vmanage_mcp.webapp import EvidenceAssistant, create_web_app
+from tests.permissions import assert_private_permissions
 from tests.test_snapshots import _snapshot
 
 
@@ -1494,7 +1495,7 @@ def test_default_investigation_store_uses_configured_private_directory(
     assert snapshots.json() == {"items": []}
     assert workflows.json() == {"items": []}
     assert change_plans.json() == {"items": []}
-    assert state_dir.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(state_dir, 0o700)
 
 
 def test_streamed_chat_reports_bounded_phases_and_persists(tmp_path) -> None:
@@ -1683,6 +1684,15 @@ def test_chat_routes_health_devices_alarms_and_diagnosis() -> None:
     assert diagnosis.json()["data"]["device"]["hostname"] == "edge-1"
     assert change.json()["kind"] == "change-readiness"
     assert change.json()["status"] == "no-go"
+
+
+@pytest.mark.parametrize("route", ["/api/v1/chat", "/api/v1/chat/stream"])
+def test_chat_rejects_non_string_mode(route) -> None:
+    with TestClient(create_web_app(client_factory=WebClient)) as browser:
+        response = browser.post(route, json={"message": "status", "assistant_mode": []})
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "assistant_mode is invalid"}
 
 
 def test_chat_rejects_empty_or_invalid_json() -> None:

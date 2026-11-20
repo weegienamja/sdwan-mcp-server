@@ -15,6 +15,7 @@ from cisco_vmanage_mcp.services.governance import (
     AuthorizationError,
     GovernanceActor,
 )
+from tests.permissions import assert_private_permissions
 from tests.test_snapshots import _snapshot
 
 NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
@@ -54,8 +55,8 @@ def test_plan_is_immutable_encrypted_and_canary_scoped(tmp_path) -> None:
     assert plan.canary_targets == ("edge-1",)
     assert plan.execution_enabled is False
     assert b"Roll out branch template" not in store.database_path.read_bytes()
-    assert store.database_path.stat().st_mode & 0o777 == 0o600
-    assert store.key_path.stat().st_mode & 0o777 == 0o600
+    assert_private_permissions(store.database_path, 0o600)
+    assert_private_permissions(store.key_path, 0o600)
 
     with pytest.raises(ValueError, match="subset"):
         store.create(

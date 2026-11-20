@@ -43,7 +43,7 @@ async def test_runtime_registry_exposes_21_read_only_tools() -> None:
     tools = await mcp.list_tools()
 
     assert len(tools) == 21
-    assert len({tool.name for tool in tools}) == 21
+    assert {tool.name for tool in tools} == {name for name, _ in _tool_functions()}
     for tool in tools:
         assert tool.annotations is not None
         assert tool.annotations.readOnlyHint is True

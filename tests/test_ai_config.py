@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+import ssl
+from types import ModuleType, SimpleNamespace
 
 from cisco_vmanage_mcp import ai_providers
+from tests.permissions import assert_private_permissions
 
 
 def _use_temp_config(monkeypatch, tmp_path) -> None:
@@ -21,8 +23,8 @@ def test_config_never_persists_raw_api_key(monkeypatch, tmp_path) -> None:
     contents = ai_providers.CONFIG_FILE.read_text(encoding="utf-8")
     assert "sk-secret" not in contents
     assert "api_key" not in contents
-    assert ai_providers.CONFIG_FILE.stat().st_mode & 0o777 == 0o600
-    assert ai_providers.CONFIG_DIR.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(ai_providers.CONFIG_FILE, 0o600)
+    assert_private_permissions(ai_providers.CONFIG_DIR, 0o700)
 
 
 def test_auto_connect_does_not_copy_environment_key_to_config(
@@ -51,12 +53,25 @@ def test_auto_connect_does_not_copy_environment_key_to_config(
 def test_enterprise_ca_bundle_requires_explicit_opt_in(monkeypatch) -> None:
     monkeypatch.delenv("AI_CA_BUNDLE", raising=False)
 
-    assert ai_providers._ca_bundle_path() is None
+    assert ai_providers.provider_ca_bundle_path() is None
 
     monkeypatch.setenv("AI_CA_BUNDLE", "bundled")
-    bundle = ai_providers._ca_bundle_path()
+    bundle = ai_providers.provider_ca_bundle_path()
     assert bundle is not None
     assert ai_providers.Path(bundle).is_file()
+
+
+def test_custom_provider_ca_verifies_certificates_and_hostnames(monkeypatch) -> None:
+    sdk = ModuleType("test_provider_sdk")
+    monkeypatch.setattr(sdk, "DefaultHttpxClient", lambda *, verify: verify, raising=False)
+    monkeypatch.setenv("AI_CA_BUNDLE", "bundled")
+
+    context = ai_providers._provider_transport(sdk)
+
+    assert isinstance(context, ssl.SSLContext)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
+    assert context.get_ca_certs()
 
 
 def test_claude_tool_loop_is_bounded(monkeypatch) -> None:

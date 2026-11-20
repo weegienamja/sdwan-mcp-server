@@ -13,9 +13,7 @@ import re
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp import __version__
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
-from cisco_vmanage_mcp.tools import read_only_annotations
 
 logger = logging.getLogger("cisco_vmanage_mcp.version_tool")
 
@@ -53,10 +51,6 @@ def _parse_version(version_str: str) -> tuple[int, ...]:
     return (0, 0, 0)
 
 
-@mcp.tool(
-    name="vmanage_check_version",
-    annotations=read_only_annotations("Check Server Version"),
-)
 @audit_tool("vmanage_check_version")
 async def vmanage_check_version(
     ctx: Context,
@@ -93,11 +87,13 @@ async def vmanage_check_version(
     if latest:
         lines.append(f"**Latest:**  v{latest}")
         if update_available:
-            lines.append("")
-            lines.append("An update is available. Upgrade with:")
-            lines.append("```")
-            lines.append("cd /path/to/cisco-vmanage-mcp && git pull && pip install -e .")
-            lines.append("```")
+            lines.extend([
+                "",
+                "An update is available. Upgrade with:",
+                "```",
+                "cd /path/to/cisco-vmanage-mcp && git pull && pip install -e .",
+                "```",
+            ])
         else:
             lines.append("")
             lines.append("You are running the latest version.")

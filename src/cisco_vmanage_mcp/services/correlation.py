@@ -19,7 +19,6 @@ from cisco_vmanage_mcp.client import VManageClient
 from cisco_vmanage_mcp.services.health_check import (
     DeviceHealth,
     FabricHealthReport,
-    HealthLevel,
     assess_fabric_health,
 )
 
@@ -30,19 +29,10 @@ class SiteStatus:
     site_id: str
     devices: list[DeviceHealth] = field(default_factory=list)
     all_unreachable: bool = False
-    partially_degraded: bool = False
 
     @property
     def device_count(self) -> int:
         return len(self.devices)
-
-    @property
-    def unreachable_count(self) -> int:
-        return sum(1 for d in self.devices if not d.reachable)
-
-    @property
-    def reachable_count(self) -> int:
-        return sum(1 for d in self.devices if d.reachable)
 
 
 @dataclass
@@ -61,7 +51,6 @@ class ImpactAssessment:
     scope: str  # "device", "site", "transport", "fabric-wide"
     affected_sites: list[str] = field(default_factory=list)
     affected_devices: list[str] = field(default_factory=list)
-    total_affected_bfd: int = 0
     estimated_user_impact: str = ""
 
 
@@ -87,10 +76,6 @@ def _group_by_site(devices: list[DeviceHealth]) -> dict[str, SiteStatus]:
 
     for site in sites.values():
         site.all_unreachable = all(not d.reachable for d in site.devices)
-        site.partially_degraded = any(
-            d.overall_health in (HealthLevel.DEGRADED, HealthLevel.CRITICAL)
-            for d in site.devices
-        )
 
     return sites
 
@@ -108,7 +93,7 @@ def _analyze_failure_scope(
             estimated_user_impact="No unreachable devices detected.",
         )
 
-    unreachable_sites = list({d.site_id for d in unreachable})
+    unreachable_sites = sorted({d.site_id for d in unreachable})
     total_sites = list(sites.keys())
 
     # Check if controllers are down
@@ -118,7 +103,6 @@ def _analyze_failure_scope(
             scope="fabric-wide",
             affected_sites=total_sites,
             affected_devices=[d.hostname for d in unreachable],
-            total_affected_bfd=sum(d.bfd_sessions for d in unreachable),
             estimated_user_impact=(
                 f"Controller(s) unreachable ({', '.join(d.hostname for d in unreachable_controllers)}). "
                 f"This may affect policy distribution and route updates fabric-wide."
@@ -131,7 +115,6 @@ def _analyze_failure_scope(
             scope="fabric-wide",
             affected_sites=unreachable_sites,
             affected_devices=[d.hostname for d in unreachable],
-            total_affected_bfd=sum(d.bfd_sessions for d in unreachable),
             estimated_user_impact=(
                 f"Multiple sites affected ({len(unreachable_sites)}/{len(total_sites)}). "
                 f"This suggests a widespread transport or control-plane issue."
@@ -146,7 +129,6 @@ def _analyze_failure_scope(
             scope="site",
             affected_sites=[site.site_id],
             affected_devices=[d.hostname for d in site.devices],
-            total_affected_bfd=sum(d.bfd_sessions for d in site.devices),
             estimated_user_impact=(
                 f"All devices at site {site.site_id} are unreachable. "
                 f"Impact is isolated to this site. Other sites maintain connectivity."
@@ -158,7 +140,6 @@ def _analyze_failure_scope(
         scope="device",
         affected_sites=unreachable_sites,
         affected_devices=[d.hostname for d in unreachable],
-        total_affected_bfd=sum(d.bfd_sessions for d in unreachable),
         estimated_user_impact=(
             f"{len(unreachable)} device(s) unreachable across {len(unreachable_sites)} site(s). "
             f"Other WAN edges at the same site(s) maintain connectivity, "
@@ -286,7 +267,6 @@ def _generate_root_causes(
 
 def _build_narrative(
     report: FabricHealthReport,
-    sites: dict[str, SiteStatus],
     impact: ImpactAssessment,
     root_causes: list[RootCauseHypothesis],
 ) -> str:
@@ -306,20 +286,20 @@ def _build_narrative(
     wan_edges = [d for d in report.devices if d.device_type == "vedge"]
     controllers = [d for d in report.devices if d.device_type != "vedge"]
 
-    lines.append(f"## Fabric Health: {report.overall_health.value.upper()}")
-    lines.append("")
-
-    # Device summary
-    lines.append("### Devices")
-    lines.append(
-        f"- Controllers: {len(controllers)} "
-        f"({sum(1 for c in controllers if c.reachable)} reachable)"
-    )
-    lines.append(
-        f"- WAN Edges: {len(wan_edges)} "
-        f"({sum(1 for w in wan_edges if w.reachable)} reachable, "
-        f"{sum(1 for w in wan_edges if not w.reachable)} unreachable)"
-    )
+    lines.extend([
+        f"## Fabric Health: {report.overall_health.value.upper()}",
+        "",
+        "### Devices",
+        (
+            f"- Controllers: {len(controllers)} "
+            f"({sum(1 for c in controllers if c.reachable)} reachable)"
+        ),
+        (
+            f"- WAN Edges: {len(wan_edges)} "
+            f"({sum(1 for w in wan_edges if w.reachable)} reachable, "
+            f"{sum(1 for w in wan_edges if not w.reachable)} unreachable)"
+        ),
+    ])
 
     # Alarm summary
     if report.alarm_counts:
@@ -332,10 +312,12 @@ def _build_narrative(
 
     # Impact
     if impact and impact.scope != "none":
-        lines.append("")
-        lines.append("### Impact Assessment")
-        lines.append(f"- Scope: **{impact.scope}**")
-        lines.append(f"- {impact.estimated_user_impact}")
+        lines.extend([
+            "",
+            "### Impact Assessment",
+            f"- Scope: **{impact.scope}**",
+            f"- {impact.estimated_user_impact}",
+        ])
         if impact.affected_devices:
             lines.append(f"- Affected: {', '.join(impact.affected_devices)}")
 
@@ -366,28 +348,15 @@ async def correlate_fabric_state(client: VManageClient) -> CorrelationReport:
 
     This is the primary entry point for intelligent fabric analysis.
     """
-    # Step 1: Assess fabric health (fetches data + computes per-device signals)
-    fabric_report = await assess_fabric_health(client)
+    return _correlate(await assess_fabric_health(client))
 
-    # Step 2: Group by site
+
+def _correlate(fabric_report: FabricHealthReport) -> CorrelationReport:
     site_statuses = _group_by_site(fabric_report.devices)
-
-    # Step 3: Assess impact / blast radius
     impact = _analyze_failure_scope(fabric_report.devices, site_statuses)
-
-    # Step 4: Generate root-cause hypotheses
-    root_causes = _generate_root_causes(
-        fabric_report.devices, site_statuses, impact
-    )
-
-    # Step 5: Build narrative
-    narrative = _build_narrative(fabric_report, site_statuses, impact, root_causes)
-
-    # Step 6: Track data sources
-    data_sources_used = [
-        fr.source.value for fr in fabric_report.fetch_results if fr.success
-    ]
-
+    root_causes = _generate_root_causes(fabric_report.devices, site_statuses, impact)
+    narrative = _build_narrative(fabric_report, impact, root_causes)
+    data_sources_used = [fr.source.value for fr in fabric_report.fetch_results if fr.success]
     return CorrelationReport(
         fabric_report=fabric_report,
         site_statuses=site_statuses,
@@ -419,22 +388,20 @@ async def diagnose_device(
     # Merge device-specific fetch results
     fabric_report.fetch_results.extend(device_fetches)
 
-    # Build correlation with device focus
-    site_statuses = _group_by_site(fabric_report.devices)
-    impact = _analyze_failure_scope(fabric_report.devices, site_statuses)
-    root_causes = _generate_root_causes(fabric_report.devices, site_statuses, impact)
-    narrative = _build_narrative(fabric_report, site_statuses, impact, root_causes)
+    correlation = _correlate(fabric_report)
 
     # Add device-specific section
     if device_health:
-        device_lines = ["\n### Device-Specific Analysis"]
-        device_lines.append(
-            f"**{device_health.hostname}** ({device_health.system_ip}) "
-            f"at site {device_health.site_id}"
-        )
-        device_lines.append(f"- Health: **{device_health.overall_health.value}**")
-        device_lines.append(f"- BFD Sessions: {device_health.bfd_sessions}")
-        device_lines.append(f"- Control Connections: {device_health.control_connections}")
+        device_lines = [
+            "\n### Device-Specific Analysis",
+            (
+                f"**{device_health.hostname}** ({device_health.system_ip}) "
+                f"at site {device_health.site_id}"
+            ),
+            f"- Health: **{device_health.overall_health.value}**",
+            f"- BFD Sessions: {device_health.bfd_sessions}",
+            f"- Control Connections: {device_health.control_connections}",
+        ]
 
         if device_health.signals:
             device_lines.append("\n**Signals:**")
@@ -447,19 +414,6 @@ async def diagnose_device(
         else:
             device_lines.append("- No issues detected on this device.")
 
-        narrative += "\n" + "\n".join(device_lines)
-
-    data_sources_used = [
-        fr.source.value for fr in fabric_report.fetch_results if fr.success
-    ]
-
-    correlation = CorrelationReport(
-        fabric_report=fabric_report,
-        site_statuses=site_statuses,
-        root_causes=root_causes,
-        impact=impact,
-        narrative=narrative,
-        data_sources_used=data_sources_used,
-    )
+        correlation.narrative += "\n" + "\n".join(device_lines)
 
     return correlation, device_health
