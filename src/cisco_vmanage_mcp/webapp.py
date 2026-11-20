@@ -95,9 +95,7 @@ from cisco_vmanage_mcp.services.snapshots import (
     snapshot_freshness,
 )
 from cisco_vmanage_mcp.services.web_security import (
-    BrowserAuditMiddleware,
-    BrowserIdentityMiddleware,
-    BrowserResponseSecurityMiddleware,
+    BrowserSecurityMiddleware,
     request_actor,
 )
 from cisco_vmanage_mcp.services.workflows import (
@@ -1877,19 +1875,13 @@ def create_web_app(
 
     middleware = [
         Middleware(
-            BrowserResponseSecurityMiddleware,
-            enterprise_mode=settings.auth_mode == "oidc",
-        ),
-        Middleware(BrowserAuditMiddleware),
-    ]
-    middleware.append(
-        Middleware(
-            BrowserIdentityMiddleware,
+            BrowserSecurityMiddleware,
             settings=settings,
             local_actor=LOCAL_ACTOR,
             verifier=verifier,
         )
-    )
+    ]
+
     return Starlette(
         routes=[
             Route("/health/live", live),

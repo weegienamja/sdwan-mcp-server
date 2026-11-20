@@ -5,7 +5,7 @@ from __future__ import annotations
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
@@ -13,9 +13,7 @@ from cisco_vmanage_mcp.services.deployment import WebDeploymentSettings
 from cisco_vmanage_mcp.services.governance import GovernanceActor
 from cisco_vmanage_mcp.services.identity import IdentityError, IdentityUnavailableError
 from cisco_vmanage_mcp.services.web_security import (
-    BrowserAuditMiddleware,
-    BrowserIdentityMiddleware,
-    BrowserResponseSecurityMiddleware,
+    BrowserSecurityMiddleware,
     request_actor,
 )
 
@@ -65,18 +63,42 @@ def _application(settings: WebDeploymentSettings, verifier=None) -> Starlette:
         ],
         middleware=[
             Middleware(
-                BrowserResponseSecurityMiddleware,
-                enterprise_mode=settings.auth_mode == "oidc",
-            ),
-            Middleware(BrowserAuditMiddleware),
-            Middleware(
-                BrowserIdentityMiddleware,
+                BrowserSecurityMiddleware,
                 settings=settings,
                 local_actor=LOCAL_ACTOR,
                 verifier=verifier,
             ),
         ],
     )
+
+
+def test_browser_audits_once_when_an_endpoint_fails(monkeypatch) -> None:
+    entries = []
+    monkeypatch.setattr(
+        "cisco_vmanage_mcp.services.web_security.log_browser_request",
+        lambda _method, _route, status, request_id, **metadata:
+            entries.append((status, request_id, metadata["error"])),
+    )
+
+    async def fail(_request):
+        raise RuntimeError("failure before headers")
+
+    async def stream(_request):
+        async def chunks():
+            yield b"first"
+            raise RuntimeError("failure after headers")
+
+        return StreamingResponse(chunks())
+
+    application = _application(WebDeploymentSettings(auth_mode="local"))
+    application.routes.extend([Route("/fail", fail), Route("/stream", stream)])
+    with TestClient(application, raise_server_exceptions=False) as browser:
+        failed = browser.get("/fail", headers={"X-Request-ID": "early"})
+        streamed = browser.get("/stream", headers={"X-Request-ID": "late"})
+
+    assert failed.status_code == 500
+    assert streamed.headers["X-Request-ID"] == "late"
+    assert entries == [(500, "early", "RuntimeError"), (200, "late", None)]
 
 
 def test_local_mode_attaches_owner_without_token() -> None:

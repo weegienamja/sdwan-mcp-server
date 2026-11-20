@@ -8,9 +8,10 @@ import time
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from cisco_vmanage_mcp.services.audit import log_browser_request
 from cisco_vmanage_mcp.services.deployment import WebDeploymentSettings, is_loopback_host
@@ -26,18 +27,18 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
-class BrowserIdentityMiddleware(BaseHTTPMiddleware):
-    """Authenticate requests and attach a request-scoped governance actor."""
+class BrowserSecurityMiddleware:
+    """Authenticate HTTP requests, audit their status, and secure response headers."""
 
     def __init__(
         self,
-        app,
+        app: ASGIApp,
         *,
         settings: WebDeploymentSettings,
         local_actor: GovernanceActor,
         verifier: IdentityVerifier | None,
     ) -> None:
-        super().__init__(app)
+        self.app = app
         self.settings = settings
         self.local_actor = local_actor
         self.verifier = verifier
@@ -50,22 +51,46 @@ class BrowserIdentityMiddleware(BaseHTTPMiddleware):
             f"{public_url.scheme}://{public_url.netloc}" if public_url.netloc else None
         )
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+        started = time.monotonic()
+        response_started = False
+
+        async def send_response(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+                self._set_headers(request, MutableHeaders(scope=message))
+                self._log(request, message["status"], started)
+            await send(message)
+
+        try:
+            rejection = await self._authorize(request)
+            if rejection is None:
+                await self.app(scope, receive, send_response)
+            else:
+                await rejection(scope, receive, send_response)
+        except Exception as exc:
+            if not response_started:
+                self._log(request, 500, started, error=type(exc).__name__)
+            raise
+
+    async def _authorize(self, request: Request) -> Response | None:
         request_id = request.headers.get("x-request-id", "")
         request.state.request_id = (
             request_id if REQUEST_ID_PATTERN.fullmatch(request_id) else str(uuid4())
         )
         if request.url.path in HEALTH_PATHS:
-            return await call_next(request)
+            return None
         if self.settings.auth_mode == "local":
             if not self._is_local_request(request):
                 return self._error("Local mode accepts only loopback requests", 403)
             request.state.actor = self.local_actor
-            return await call_next(request)
+            return None
         if not self._host_allowed(request.url.hostname):
             return self._error("Host is not allowed", 400)
         if not self._is_secure_request(request):
@@ -85,7 +110,7 @@ class BrowserIdentityMiddleware(BaseHTTPMiddleware):
         if request.method not in SAFE_METHODS and self._is_cross_site(request):
             return self._error("Cross-site request rejected", 403)
         request.state.actor = actor
-        return await call_next(request)
+        return None
 
     @staticmethod
     def _bearer_token(request: Request) -> str | None:
@@ -143,24 +168,6 @@ class BrowserIdentityMiddleware(BaseHTTPMiddleware):
             headers["WWW-Authenticate"] = 'Bearer realm="cisco-vmanage-mcp"'
         return JSONResponse({"error": message}, status_code=status_code, headers=headers)
 
-
-class BrowserAuditMiddleware(BaseHTTPMiddleware):
-    """Record bounded request metadata for authenticated and rejected traffic."""
-
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        started = time.monotonic()
-        try:
-            response = await call_next(request)
-        except Exception as exc:
-            self._log(request, 500, started, error=type(exc).__name__)
-            raise
-        self._log(request, response.status_code, started)
-        return response
-
     @staticmethod
     def _log(
         request: Request,
@@ -184,29 +191,8 @@ class BrowserAuditMiddleware(BaseHTTPMiddleware):
             error=error,
         )
 
-
-def request_actor(request: Request) -> GovernanceActor:
-    """Return the actor established by the HTTP security boundary."""
-    actor = getattr(request.state, "actor", None)
-    if not isinstance(actor, GovernanceActor):
-        raise RuntimeError("Request identity was not established")
-    return actor
-
-
-class BrowserResponseSecurityMiddleware(BaseHTTPMiddleware):
-    """Attach browser hardening and correlation headers to every response."""
-
-    def __init__(self, app, *, enterprise_mode: bool) -> None:
-        super().__init__(app)
-        self.enterprise_mode = enterprise_mode
-
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        response = await call_next(request)
-        response.headers["Content-Security-Policy"] = (
+    def _set_headers(self, request: Request, headers: MutableHeaders) -> None:
+        headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self'; "
             "style-src 'self'; "
@@ -217,24 +203,27 @@ class BrowserResponseSecurityMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'; "
             "form-action 'self'"
         )
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Permissions-Policy"] = (
+        headers["X-Content-Type-Options"] = "nosniff"
+        headers["X-Frame-Options"] = "DENY"
+        headers["Referrer-Policy"] = "no-referrer"
+        headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=(), payment=()"
         )
-        response.headers["X-Request-ID"] = getattr(
-            request.state,
-            "request_id",
-            str(uuid4()),
-        )
-        if self.enterprise_mode and (
+        headers["X-Request-ID"] = request.state.request_id
+        if self.settings.auth_mode == "oidc" and (
             request.url.scheme == "https"
             or getattr(request.state, "secure_transport", False)
         ):
-            response.headers["Strict-Transport-Security"] = (
+            headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
             )
         if request.url.path.startswith("/api/") or request.url.path in HEALTH_PATHS:
-            response.headers["Cache-Control"] = "no-store"
-        return response
+            headers["Cache-Control"] = "no-store"
+
+
+def request_actor(request: Request) -> GovernanceActor:
+    """Return the actor established by the HTTP security boundary."""
+    actor = getattr(request.state, "actor", None)
+    if not isinstance(actor, GovernanceActor):
+        raise RuntimeError("Request identity was not established")
+    return actor
