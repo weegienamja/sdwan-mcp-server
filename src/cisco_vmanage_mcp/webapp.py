@@ -499,6 +499,7 @@ class EvidenceAssistant:
                     ],
                 },
                 "impact": report.impact.scope if report.impact else "unknown",
+                "impact_detail": report.impact.estimated_user_impact if report.impact else "",
                 "root_causes": [cause.hypothesis for cause in report.root_causes],
             },
             "evidence": _source_evidence(report),

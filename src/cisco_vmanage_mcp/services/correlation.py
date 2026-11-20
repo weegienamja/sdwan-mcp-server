@@ -109,8 +109,15 @@ def _analyze_failure_scope(
             ),
         )
 
-    # Check if all sites have issues (fabric-wide transport)
-    if len(unreachable_sites) > len(total_sites) * 0.5:
+    if len(devices) == 1:
+        return ImpactAssessment(
+            scope="unknown", affected_sites=unreachable_sites,
+            affected_devices=[unreachable[0].hostname],
+            estimated_user_impact="Only one edge is visible. Wider impact and the cause are unknown.",
+        )
+
+    # A majority of visible sites can support a multi-site hypothesis only when several are affected.
+    if len(unreachable_sites) > 1 and len(unreachable_sites) > len(total_sites) * 0.5:
         return ImpactAssessment(
             scope="fabric-wide",
             affected_sites=unreachable_sites,
@@ -130,8 +137,7 @@ def _analyze_failure_scope(
             affected_sites=[site.site_id],
             affected_devices=[d.hostname for d in site.devices],
             estimated_user_impact=(
-                f"All devices at site {site.site_id} are unreachable. "
-                f"Impact is isolated to this site. Other sites maintain connectivity."
+                f"All {site.device_count} visible device(s) at site {site.site_id} are unreachable."
             ),
         )
 
@@ -194,11 +200,10 @@ def _site_scope_causes(sites: dict[str, SiteStatus]) -> list[RootCauseHypothesis
     return [
         RootCauseHypothesis(
             rank=rank,
-            hypothesis=f"Site {site_id} WAN outage (all {site.device_count} device(s) unreachable)",
-            confidence="high",
+            hypothesis=f"Possible WAN outage at site {site_id}",
+            confidence="medium" if site.device_count > 1 else "low",
             supporting_evidence=[
-                f"All devices at site {site_id} are unreachable simultaneously",
-                "Other sites maintain connectivity",
+                f"All {site.device_count} visible device(s) at site {site_id} are unreachable",
             ],
             suggested_checks=[
                 f"Check WAN circuit(s) at site {site_id}",
@@ -237,7 +242,6 @@ def _fabric_scope_causes(unreachable: list[DeviceHealth]) -> list[RootCauseHypot
         confidence="medium",
         supporting_evidence=[
             f"{len(unreachable)} device(s) unreachable across multiple sites",
-            "Controllers are reachable, ruling out control-plane origin",
         ],
         suggested_checks=[
             "Check common transport provider circuits",
