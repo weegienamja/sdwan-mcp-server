@@ -213,6 +213,23 @@ class TestGroupBySite:
 
 
 class TestAnalyzeFailureScope:
+    @pytest.mark.parametrize(("count", "scope"), [(1, "unknown"), (2, "site")])
+    def test_one_visible_site_does_not_establish_multi_site_failure(self, count, scope):
+        devices = [compute_device_health(_make_device(
+            f"edge-{i}", f"192.0.2.{i}", "100", reachability="unreachable", bfd=0, control=0,
+        )) for i in range(1, count + 1)]
+        sites = _group_by_site(devices)
+        impact = _analyze_failure_scope(devices, sites)
+        assert impact.scope == scope
+        assert impact.affected_sites == ["100"]
+        causes = _generate_root_causes(devices, sites, impact)
+        if count == 1:
+            assert not causes
+        else:
+            assert causes[0].supporting_evidence == [
+                "All 2 visible device(s) at site 100 are unreachable",
+            ]
+
     def test_no_failures(self):
         devices = [compute_device_health(d) for d in HEALTHY_FABRIC]
         sites = _group_by_site(devices)

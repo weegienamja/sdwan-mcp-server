@@ -9,6 +9,23 @@ permissions:
   contents: read
 
 jobs:
+  workstation:
+    name: Windows workstation kit
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Build and check the portable kit
+        run: python scripts/build_workstation.py
+      - name: Check read-only Edge collection with offline fixtures
+        run: node --test tests/edge_collector.test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-workstation
+          path: dist/SD-WAN-Workstation-Windows-x64.zip
+
   quality:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest

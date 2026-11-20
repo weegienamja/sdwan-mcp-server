@@ -1,6 +1,6 @@
 [project]
 name = "cisco-vmanage-mcp"
-version = "2.2.0"
+version = "2.3.0"
 description = "MCP server exposing Cisco SD-WAN vManage APIs for LLM agents with correlation, root-cause analysis, and operational guardrails"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -31,6 +31,7 @@ vmanage-mcp = "cisco_vmanage_mcp.cli:cli"
 vmanage-mcp-install = "cisco_vmanage_mcp.installer:main"
 vmanage-console = "cisco_vmanage_mcp.app:main"
 vmanage-web = "cisco_vmanage_mcp.webapp:main"
+vmanage-workstation = "cisco_vmanage_mcp.workstation:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -115,7 +116,7 @@ exclude_dirs = ["tests"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "2.2.0"
+version = "2.3.0"
 version_files = [
     "src/cisco_vmanage_mcp/__init__.py:__version__",
     "pyproject.toml:version",
