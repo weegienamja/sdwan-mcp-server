@@ -66,11 +66,15 @@ async def _wait_for_model(client: httpx.AsyncClient, alias: str, process: asynci
     raise LocalModelError(f"llama-server exited during startup (code {process.returncode}). Check the GGUF and runtime.")
 
 
-@asynccontextmanager
-async def run_local_model(executable: Path, model_file: Path) -> AsyncIterator[LocalModel]:
+def _validate_gguf(model_file: Path) -> None:
     with model_file.open("rb") as file:
         if file.read(4) != b"GGUF":
             raise LocalModelError("Select a GGUF model file.")
+
+
+@asynccontextmanager
+async def run_local_model(executable: Path, model_file: Path) -> AsyncIterator[LocalModel]:
+    await asyncio.to_thread(_validate_gguf, model_file)
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

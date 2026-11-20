@@ -76,11 +76,13 @@ async def test_operator_chat_reads_scoped_inventory_and_sends_only_evidence(monk
         ]})
 
     def model(request):
-        assert request.method == "POST" and request.url.path == "/v1/chat/completions"
+        assert request.method == "POST"
+        assert request.url.path == "/v1/chat/completions"
         assert request.url.host == "127.0.0.1"
         assert "example-personal-jwt" not in str(request.headers) + request.content.decode()
         payload = json.loads(request.content)
-        assert "tools" not in payload and "edge-visible" in payload["messages"][1]["content"]
+        assert "tools" not in payload
+        assert "edge-visible" in payload["messages"][1]["content"]
         assert "other-site" not in payload["messages"][1]["content"]
         return httpx.Response(200, json={"choices": [{"message": {"content": "edge-visible is unreachable."}}]})
 
@@ -93,8 +95,10 @@ async def test_operator_chat_reads_scoped_inventory_and_sends_only_evidence(monk
     finally:
         await reader.close()
     output = capsys.readouterr().out
-    assert "2 devices visible" in output and "edge-visible is unreachable" in output
-    assert "GET /dataservice/device" in output and "example-personal-jwt" not in output
+    assert "2 devices visible" in output
+    assert "edge-visible is unreachable" in output
+    assert "GET /dataservice/device" in output
+    assert "example-personal-jwt" not in output
 
 
 @pytest.mark.asyncio
@@ -116,7 +120,8 @@ async def test_alarm_questions_filter_by_site_before_limiting_the_display():
         {"data": [{"site-id": 100, "system-ip": "192.0.2.8"}]},
     ]
     response = await workstation.EvidenceAssistant(client).ask("Which alarms are critical at site 100?")
-    assert response["data"]["count"] == 60 and len(response["data"]["items"]) == 50
+    assert response["data"]["count"] == 60
+    assert len(response["data"]["items"]) == 50
     assert len(response["evidence"]) == 2
 
 

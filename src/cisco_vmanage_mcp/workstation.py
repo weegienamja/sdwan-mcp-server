@@ -41,9 +41,26 @@ def _display(value: str) -> None:
     click.echo("".join(c for c in value if c in "\n\t" or c.isprintable()))
 
 
+async def _answer(assistant: EvidenceAssistant, model: LocalModel, reader: ManagerReader, question: str) -> None:
+    result = await assistant.ask(question)
+    if reader.sign_in_required:
+        raise ManagerReadError("Your Manager session expired. Restart and enter a valid token.")
+    sources = result["evidence"]
+    for source in sources:
+        _display(f"  {source['label']} [{source['state']}]")
+    if not any(source["state"] == "ok" for source in sources):
+        click.echo("Manager returned no usable evidence for this question.")
+        return
+    if any(source["state"] != "ok" for source in sources):
+        result = {**result, "answer": "Partial evidence. Failed sources are unavailable."}
+    _display(result["answer"])
+    _display(await model.explain(question, result))
+
+
 async def _chat(reader: ManagerReader, model: LocalModel) -> None:
     inventory = await reader.get("/dataservice/device")
-    click.echo(f"Authenticated. {len(inventory['data'])} devices visible to your Cisco account.")
+    count = len(inventory["data"])
+    click.echo(f"Authenticated. {count} device{'s' if count != 1 else ''} visible to your Cisco account.")
     click.echo("Ask about fabric health, critical alarms, a site ID or a device system IP. Type /quit to end.")
     assistant = EvidenceAssistant(reader)
     while True:
@@ -54,27 +71,11 @@ async def _chat(reader: ManagerReader, model: LocalModel) -> None:
             click.echo("Keep the question under 2,000 characters.")
             continue
         try:
-            result = await assistant.ask(question)
-        except ManagerReadError as exc:
+            await _answer(assistant, model, reader, question)
+        except (ManagerReadError, LocalModelError) as exc:
             if reader.sign_in_required:
                 raise
             _display(str(exc))
-            continue
-        if reader.sign_in_required:
-            raise ManagerReadError("Your Manager session expired. Restart and enter a valid token.")
-        sources = result["evidence"]
-        for source in sources:
-            _display(f"  {source['label']} [{source['state']}]")
-        if not any(source["state"] == "ok" for source in sources):
-            click.echo("Manager returned no usable evidence for this question.")
-            continue
-        if any(source["state"] != "ok" for source in sources):
-            result = {**result, "answer": "Partial evidence. Failed sources are unavailable."}
-        _display(result["answer"])
-        try:
-            _display(await model.explain(question, result))
-        except LocalModelError as exc:
-            click.echo(str(exc))
 
 
 async def _run(

@@ -345,7 +345,7 @@ class EvidenceAssistant:
             "diagnose", "inspect", "investigate", "why", "down", "bfd", "control connection",
         )):
             return await self._diagnose(system_ip)
-        site_match = re.search(r"\bsite(?:\s+id)?\s*[:#-]?\s*(\d+)\b", lowered)
+        site_match = re.search(r"\bsite(?:\s++id)?[\s:#-]*+([0-9]++)\b", lowered)
         site = site_match[1] if site_match else None
         if "alarm" in lowered or "alert" in lowered:
             return await self._alarms(critical_only="critical" in lowered, site=site)
