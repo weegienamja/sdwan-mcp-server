@@ -1,19 +1,47 @@
-# Cisco vManage MCP Server
+<a name="cisco-vmanage-mcp-server"></a>
 
-![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)
-![Tests](https://img.shields.io/badge/tests-CI-brightgreen)
-![Read-Only](https://img.shields.io/badge/safety-read--only-blue)
+# ![Cisco vManage MCP Server — Made by Jamie Blair](docs/assets/sdwan-masthead.svg)
 
-A production-grade [Model Context Protocol](https://modelcontextprotocol.io/) server for Cisco SD-WAN vManage. It exposes 21 read-only tools (16 retrieval, 4 diagnostic, 1 version) that let LLM agents query device status, tunnel health, alarms, policies, and deterministic incident analysis through natural language. A built-in **correlation engine** computes health signals, root-cause hypotheses, and blast-radius assessments in Python so the LLM explains structured results instead of improvising from raw API payloads. The package also provides a Click CLI, an interactive console with optional AI providers, a local browser operations canvas with connected topology and prioritized actions, and an MCP-client installer.
+[![Cisco access · read-only](https://img.shields.io/badge/Cisco_access-read--only-005073?labelColor=0D274D)](#safety)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-0875A1?labelColor=0D274D)](#quick-start)
+[![License · Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-005073?labelColor=0D274D)](LICENSE)
+[![CI status on main](https://github.com/weegienamja/sdwan-mcp-server/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/weegienamja/sdwan-mcp-server/actions/workflows/ci.yml)
 
-Launch the local browser workspace with `vmanage-web`, then open `http://127.0.0.1:8765`. Local mode enforces loopback at both startup and request time. Enterprise mode supports a single customer tenant behind an identity-aware HTTPS proxy and independently validates OIDC bearer tokens, trusted proxy addresses, public hosts, tenant claims, and application roles. See [Enterprise Deployment](docs/ENTERPRISE_DEPLOYMENT.md).
+Ask about unreachable sites, active alarms and tunnel health in Cisco Catalyst SD-WAN Manager (vManage). On Windows, the Edge extension reads from your signed-in Manager tab and Qwen explains the snapshot on your laptop. For MCP clients, the server provides 21 read-only tools.
 
-For a Windows laptop with a downloaded **Qwen3.5-4B GGUF**, use the **Windows workstation kit**. Its Edge extension adds **Diagnose with local Qwen** to the signed-in Manager workflow. The operator collects a read-only snapshot and asks questions locally. The ZIP includes the extension, Python and the CPU inference runtime. The terminal also supports personal Cisco API tokens. [Workstation setup and download instructions](docs/WORKSTATION.md)
+**[Download the Windows x64 ZIP](https://github.com/weegienamja/sdwan-mcp-server/releases/latest/download/SD-WAN-Workstation-Windows-x64.zip)** · [Windows and Edge setup](#set-up-the-windows-app-and-edge) · [MCP server setup](#quick-start) · [Tool reference](#available-tools)
 
-The current hardware-management scope is Cisco Catalyst SD-WAN through vManage. The roadmap defines separate adapters for other Cisco platforms; their APIs and semantics are not represented as supported today.
+## Set up the Windows app and Edge
+
+The ZIP includes the Windows app, the Edge extension, Python and the CPU inference runtime. Have your Qwen3.5-4B `.gguf` in **Downloads** and the address you normally use to reach Manager after signing in. The extension uses your company SSO and MFA. No API token or gateway is required.
+
+1. **Extract the kit.** In File Explorer, open **Downloads**, right-click **SD-WAN-Workstation-Windows-x64.zip** and choose **Extract All**. Pick a local folder you can keep, such as `C:\Users\<your-name>\SD-WAN-Workstation`. Open the extracted folder containing **Set up Edge.cmd** and **Edge extension**. Keep the contents together.
+
+2. **Register your Manager.** Double-click **Set up Edge.cmd** under your usual Windows account. At `Cisco Manager HTTPS hostname`, enter the HTTPS address from the signed-in **Manager** tab, including the port if one is shown. For example, if the dashboard is at `https://manager.example.com:8443/app/dashboard`, enter `https://manager.example.com:8443`.
+
+3. **Select Qwen.** Setup searches your user account’s **Downloads** folder for matching GGUFs. With one match it prints `Using` and the full path. With several, type the number beside the model you want. If prompted for a path, right-click your GGUF in File Explorer, choose **Copy as path**, paste it into the setup window and press **Enter**. For a split model, keep the shards together and select the first (`00001-of-…`). Setup prints the **Edge extension** folder to use next.
+
+4. **Load the extension in your work Edge profile.** If your organisation allows unpacked extensions, open `edge://extensions`, turn on **Developer mode** and click **Load unpacked**. Select the **Edge extension** folder printed by setup. It contains `manifest.json`. Click **Select Folder** and look for **SD-WAN Workstation** in the installed list. If your organisation locks these controls, ask IT to deploy the bundled extension and allow its local native messaging host. [Microsoft’s Edge installation guide](https://learn.microsoft.com/en-us/microsoft-edge/extensions/getting-started/extension-sideloading)
+
+5. **Put Diagnose on the toolbar.** Open **Extensions** (the puzzle-piece icon) beside Edge’s address bar. Find **SD-WAN Workstation** and select **Show in toolbar**. Hover over its toolbar icon to see **Diagnose with local Qwen**.
+
+6. **Capture a snapshot.** Connect to your work network or VPN if required. Open the configured Manager in that Edge profile and complete your usual SSO and MFA. Once the **Manager dashboard** is visible, click the extension’s toolbar icon or press **Alt+Shift+Q**. Keep the Manager tab open. A new **SD-WAN diagnostics** tab shows the inventory count and capture time. Expand **Collection results** to see which reads succeeded.
+
+7. **Ask about the estate.** In **Question about this snapshot**, try **Which sites have unreachable devices?** and click **Ask Qwen**. Use **Device detail** for a device’s BFD sessions, control connections and system status. Choose **Refresh snapshot** when you want current evidence. Qwen answers from the captured data on your laptop.
+
+**To try Qwen offline first**, open PowerShell in the extracted folder and run `& '.\Start SD-WAN.cmd' --check-model`. It asks the local GGUF about three sample devices.
+
+**If the workstation disconnects**, run **Set up Edge.cmd** again under the same Windows account. Repeat setup if you move the kit or GGUF. If the kit moved, repeat **Load unpacked** with the new extension folder. If **Collection results** shows **denied**, check that your Cisco role can read that data. [Workstation and IT deployment details](docs/WORKSTATION.md)
+
+![](docs/assets/fabric-rule.svg)
 
 ## Architecture
+
+The [Model Context Protocol](https://modelcontextprotocol.io/) server exposes 16 retrieval tools, four diagnostic tools and one version tool. Its Python correlation engine computes health signals, root-cause hypotheses and the scope of an incident. The package also includes a CLI, an interactive console with optional AI providers, a browser workspace with topology and prioritised actions, and an MCP-client installer.
+
+Launch the browser workspace with `vmanage-web`, then open `http://127.0.0.1:8765`. Local mode enforces loopback at startup and on each request. Enterprise mode supports a single customer tenant behind an identity-aware HTTPS proxy and validates OIDC bearer tokens, trusted proxy addresses, public hosts, tenant claims and application roles. [Enterprise deployment](docs/ENTERPRISE_DEPLOYMENT.md)
+
+The diagram covers the server and its clients. Its supported hardware platform is Cisco Catalyst SD-WAN through vManage. Planned adapters for other Cisco platforms are tracked in the [roadmap](docs/ROADMAP.md).
 
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"fontFamily": "CiscoSans, Helvetica Neue, Arial, sans-serif", "primaryColor": "#EAF7FC", "primaryTextColor": "#0D274D", "primaryBorderColor": "#049FD9", "lineColor": "#005073", "secondaryColor": "#F3F6F8", "tertiaryColor": "#FFFFFF", "clusterBkg": "#F7FBFD", "clusterBorder": "#8FCFE5"}}}%%
@@ -63,7 +91,7 @@ flowchart LR
   Client -- "Verified HTTPS<br/>read-only API" --> Manager["Cisco Catalyst<br/>SD-WAN Manager"]
   Manager --> Fabric["Cisco SD-WAN fabric<br/>cEdges, vSmarts, vBonds"]
 
-  classDef cisco fill:#049FD9,color:#FFFFFF,stroke:#005073,stroke-width:2px;
+  classDef cisco fill:#005E82,color:#FFFFFF,stroke:#049FD9,stroke-width:2px;
   classDef ciscoDark fill:#0D274D,color:#FFFFFF,stroke:#00BCEB,stroke-width:2px;
   classDef ciscoLight fill:#EAF7FC,color:#0D274D,stroke:#049FD9,stroke-width:1.5px;
   classDef safe fill:#EAF4E3,color:#1D4F15,stroke:#52A62B,stroke-width:1.5px;
@@ -136,8 +164,8 @@ tests/                     # Unit, contract, security, and protocol tests
 
 ```bash
 # Clone the repository
-git clone https://wwwin-github.cisco.com/jamiblai/sdwan-mcp-server.git
-cd cisco-vmanage-mcp
+git clone https://github.com/weegienamja/sdwan-mcp-server.git
+cd sdwan-mcp-server
 
 # Create virtual environment and install
 python3 -m venv .venv
@@ -156,6 +184,8 @@ npx @modelcontextprotocol/inspector python -m cisco_vmanage_mcp
 # Qualify a customer vManage environment without printing device identities
 vmanage-mcp --json qualify > qualification-report.json
 ```
+
+![](docs/assets/fabric-rule.svg)
 
 ## Available Tools
 
@@ -288,6 +318,8 @@ make check
 make security
 make build
 ```
+
+![](docs/assets/fabric-rule.svg)
 
 ## Configuration
 
@@ -460,6 +492,8 @@ Or add it manually to your VS Code `settings.json`:
 **"Show me tunnel health for the site2 router"**
 → Agent calls `vmanage_list_tunnels` with `system_ip=10.10.1.15` to get IPsec tunnel stats including jitter, latency, and loss.
 
+![](docs/assets/fabric-rule.svg)
+
 ## Development
 
 ### Validation Models
@@ -520,6 +554,8 @@ This project is tested against the [Cisco DevNet always-on SD-WAN sandbox](https
 ## Licence
 
 [Apache 2.0](LICENSE), matching the DefenseClaw ecosystem licence for potential upstream contribution.
+
+![](docs/assets/fabric-rule.svg)
 
 ## Safety
 
@@ -600,6 +636,8 @@ This package does not execute changes. The plan store has no apply method, the b
 - **Browser state:** Investigations and snapshots use encrypted payloads in owner-only local files. Optional configuration comparison retains SHA-256 digests only.
 - **Dependency policy:** CI runs Bandit and audits the declared runtime dependency resolution for known vulnerabilities.
 
+![](docs/assets/fabric-rule.svg)
+
 ## Demo Output
 
 Asking Claude Code: *"I need to push a policy update in the next 30 minutes. Assess fabric health and give me an executive summary and an engineer breakdown."*
@@ -669,9 +707,7 @@ but require awareness.
 
 ## Contributing
 
-This is an internal Cisco project hosted on **wwwin-github**.
-
-- **Issues:** File issues on the [wwwin-github repository](https://wwwin-github.cisco.com/jamiblai/sdwan-mcp-server/issues). Include the tool name, vManage version, and a sanitised error message.
+- **Issues.** Include the tool name, vManage version and a sanitised error message. [Open a GitHub issue](https://github.com/weegienamja/sdwan-mcp-server/issues)
 - **Branch naming:** Use `feature/<short-description>` for new features and `fix/<short-description>` for bug fixes.
 - **Pull requests:** PRs must include unit tests for any new or modified tools. Run `pytest -v` locally before submitting and make sure all tests pass.
 - **Code style:** Follow the existing patterns: flat tool parameters (no Pydantic models in tool signatures), `@audit_tool` decorator on every tool, and formatters in `utils/formatters.py`.

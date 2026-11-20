@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 254" width="960" height="254" role="img" aria-labelledby="title desc">
+  <title id="title">Cisco vManage MCP Server — Made by Jamie Blair</title>
+  <desc id="desc">A cyan router connects three sites on a navy network diagram.</desc>
+  <defs>
+    <linearGradient id="panel" x2="1" y2=".3" gradientUnits="objectBoundingBox">
+      <stop stop-color="#0d274d"/>
+      <stop offset=".63" stop-color="#0a3557"/>
+      <stop offset="1" stop-color="#005073"/>
+    </linearGradient>
+    <pattern id="grid" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1.15" fill="#8de6fc" opacity=".22"/>
+    </pattern>
+    <g id="site">
+      <path d="m-20 -1 20 -11 20 11v6L0 16-20 5Z" fill="#06344f" stroke="#50c9e9" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="m-20 -1 20 11L20-1 0-12Z" fill="#096388" stroke="#81e7fc" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M-5-1h10" stroke="#aaf2ff" stroke-width="2.3" stroke-linecap="round"/>
+    </g>
+  </defs>
+
+  <rect width="960" height="254" rx="16" fill="url(#panel)"/>
+  <path d="M546 0h398a16 16 0 0 1 16 16v222a16 16 0 0 1-16 16H546Z" fill="url(#grid)"/>
+
+  <g font-family="Inter, 'Segoe UI', Arial, sans-serif">
+    <text x="40" y="81" fill="#fff" font-size="66" font-weight="650" letter-spacing="-2">Cisco vManage</text>
+    <text x="40" y="150" fill="#75e4fc" font-size="66" font-weight="650" letter-spacing="-2">MCP Server</text>
+    <text x="42" y="211" fill="#e2f4fa" font-size="30">Made by Jamie Blair</text>
+  </g>
+
+  <!-- Branch links follow the same perspective as the router chassis. -->
+  <g fill="none" stroke-linejoin="round" stroke-linecap="round">
+    <g stroke="#0b253f" stroke-width="7">
+      <path d="m770 119 52-30V65l44-25M778 143h60l47 27M700 150l-60 35v24l-33 19"/>
+    </g>
+    <g stroke="#47ccec" stroke-width="2.5">
+      <path d="m770 119 52-30V65l44-25M778 143h60l47 27M700 150l-60 35v24l-33 19"/>
+    </g>
+    <path d="m624 198-25-14-29 17m289-46 25-14v-21" stroke="#3292ac" stroke-width="1.5" stroke-dasharray="3 5"/>
+  </g>
+  <g fill="#a1ec6e">
+    <circle cx="822" cy="77" r="3.6"/>
+    <circle cx="838" cy="143" r="3.6"/>
+    <circle cx="640" cy="197" r="3.6"/>
+  </g>
+  <use href="#site" x="866" y="39"/>
+  <use href="#site" x="887" y="170"/>
+  <use href="#site" x="606" y="226"/>
+
+  <!-- The wordmark's routing symbol, engraved on the top of the chassis. -->
+  <g stroke-linejoin="round">
+    <path d="m656 127 74-42 74 42v24l-74 43-74-43Z" fill="#034668" stroke="#3ec7e9" stroke-width="2"/>
+    <path d="m656 127 74 42 74-42-74-42Z" fill="#087ba4" stroke="#91eafb" stroke-width="2.5"/>
+    <path d="M730 170v21" stroke="#38bbdf" stroke-width="2"/>
+    <path d="m666 144 22 13m-22-8 14 8" fill="none" stroke="#41a1bf" stroke-width="2" stroke-linecap="round"/>
+    <path d="m771 153 5-3m4-2 5-3m4-2 5-3" stroke="#9ce870" stroke-width="3" stroke-linecap="round"/>
+    <g transform="matrix(1 .57 -1 .57 730 127)" fill="none" stroke="#e4fbff" stroke-width="4.8" stroke-linecap="round">
+      <path d="M-27 9h12L3-9h24m-7-7 7 7-7 7M27 10H15l-3-3M-27-9h13l3 3"/>
+    </g>
+  </g>
+</svg>
