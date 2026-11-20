@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-11-20
+
+- Added new, saved and resumable sidebar chats for local Qwen. Each answer records its original capture time.
+- Stored encrypted chat transcripts per browser profile, Manager and environment. Saved conversations can be read locally while Manager is unavailable. Private windows keep conversations in memory.
+
 ## [2.4.0] - 2026-11-20
 
 - Named the Windows diagnostics app BlairScope and brought read-only local Qwen chat into the Edge and Chrome side panel.

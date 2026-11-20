@@ -35,12 +35,19 @@
       <details><summary>Collection results</summary><ul id="sources"></ul></details>
     </section>
     <section class="chat" aria-labelledby="chat-heading">
-      <h2 id="chat-heading">Ask local Qwen</h2>
+      <div class="row"><h2 id="chat-heading">Ask local Qwen</h2><button id="new-chat" type="button" disabled>New chat</button></div>
+      <label class="field" for="saved">Saved chats</label>
+      <select id="saved" disabled><option value="">New conversation</option></select>
+      <button type="button" id="earlier" hidden>Show earlier messages</button>
       <div id="thread" role="log" aria-live="polite"></div>
       <form><label class="field" for="question">Question about this snapshot</label>
         <textarea id="question" maxlength="2000" rows="2" required placeholder="Which sites have unreachable devices?"></textarea>
         <div class="send"><output id="progress" aria-live="polite"></output><button id="ask" disabled>Ask Qwen <span aria-hidden="true">↑</span></button></div>
       </form>
+      <details id="chat-options" hidden><summary>Manage this chat</summary>
+        <button type="button" id="delete-chat">Delete this chat</button>
+        <button type="button" id="cancel-delete" hidden>Cancel</button>
+      </details>
     </section>
     <footer>BlairScope <span>by Jamie Blair</span></footer>
   </div>

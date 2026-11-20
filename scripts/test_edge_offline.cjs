@@ -11,8 +11,9 @@ const {chromium} = require(process.env.PLAYWRIGHT_CORE || "playwright-core");
 const [kitArg, modelArg] = process.argv.slice(2);
 if (!kitArg || !modelArg) throw new Error("Supply the extracted kit and local GGUF paths.");
 const kit = path.resolve(kitArg), model = path.resolve(modelArg);
+const testHost = "org.sdwan.workstation.test_" + randomUUID().replaceAll("-", "");
 const keys = [String.raw`Microsoft\Edge`, String.raw`Google\Chrome`].map(browser =>
-  String.raw`HKCU\Software\${browser}\NativeMessagingHosts\org.sdwan.workstation`
+  ["HKCU", "Software", browser, "NativeMessagingHosts", testHost].join("\\")
 );
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "sdwan-edge-test-"));
 const local = path.join(root, "local");
@@ -83,6 +84,24 @@ async function panelDriver(profile, extensionId) {
   }
   return {evaluate, wait, command, close: () => socket.close()};
 }
+async function openPanel(context, origin) {
+  const tab = context.pages()[0];
+  await tab.goto(origin);
+  await tab.getByText("Sign in to the fixture").click();
+  const browser = await context.browser().newBrowserCDPSession();
+  const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+  const extensionId = new URL(worker.url()).host;
+  assert.equal(extensionId, "beapjnblokiomlppfhbidaaabofbolci");
+  const targets = await browser.send("Target.getTargets", {filter: [{type: "tab"}, {exclude: true}]});
+  const target = targets.targetInfos.find(t => t.url === tab.url()) || (
+    targets.targetInfos.length === 1 ? targets.targetInfos[0] : null
+  );
+  assert.ok(target, "Could not identify the isolated fixture tab.");
+  const trigger = () => browser.send("Extensions.triggerAction", {id: extensionId, targetId: target.targetId});
+  await trigger();
+  const chat = await panelDriver(path.join(root, "profile"), extensionId);
+  return {tab, browser, extensionId, trigger, chat};
+}
 async function main() {
   for (const key of keys) assert.notEqual(run("reg.exe", ["query", key]).status, 0, "An existing workstation registration is in use.");
   const cert = run(python, ["-c", certScript, root]);
@@ -122,37 +141,34 @@ async function main() {
     await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
     const origin = "https://127.0.0.1:" + server.address().port;
     const sandbox = origin.replace("127.0.0.1", "localhost");
-    const setup = run(python, ["-m", "cisco_vmanage_mcp.edge_host", "--setup", "--manager", origin, "--sandbox-manager", sandbox, "--model", model]);
+    // Give this fixture its own native messaging name, including on a configured work laptop.
+    const addon = path.join(root, "addon");
+    fs.cpSync(path.join(kit, "Edge extension"), addon, {recursive:true});
+    const script = path.join(addon, "diagnose.js");
+    const panelCode = fs.readFileSync(script, "utf8");
+    assert.ok(panelCode.includes('connectNative("org.sdwan.workstation")'));
+    fs.writeFileSync(script, panelCode.replace('connectNative("org.sdwan.workstation")', `connectNative("${testHost}")`));
+    const register = "import sys; from cisco_vmanage_mcp import edge_host; edge_host.HOST=sys.argv.pop(1); sys.exit(edge_host.main())";
+    const setup = run(python, ["-c", register, testHost, "--setup", "--manager", origin, "--sandbox-manager", sandbox, "--model", model]);
     assert.equal(setup.status, 0, setup.stderr);
     const edge = path.join(process.env["ProgramFiles(x86)"], "Microsoft", "Edge", "Application", "msedge.exe");
-    context = await chromium.launchPersistentContext(path.join(root, "profile"), {
-      executablePath: process.env.BLAIRSCOPE_TEST_BROWSER || edge, headless: true, ignoreHTTPSErrors: true, env,
-      ignoreDefaultArgs: ["--disable-extensions"],
-      args: ["--remote-debugging-port=0", "--enable-unsafe-extension-debugging", "--window-size=1280,1100",
-        "--disable-background-networking", "--no-proxy-server",
-        "--load-extension=" + path.join(kit, "Edge extension"),
-        "--disable-extensions-except=" + path.join(kit, "Edge extension"),
-        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1"]
-    });
-    await context.route(/^https?:\/\//, route => {
-      const url = new URL(route.request().url());
-      return [origin, sandbox].includes(url.origin) ? route.continue() : route.abort();
-    });
-    const tab = context.pages()[0];
-    await tab.goto(origin);
-    await tab.getByText("Sign in to the fixture").click();
-    const browser = await context.browser().newBrowserCDPSession();
-    const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
-    const extensionId = new URL(worker.url()).host;
-    assert.equal(extensionId, "beapjnblokiomlppfhbidaaabofbolci");
-    const targets = await browser.send("Target.getTargets", {filter: [{type: "tab"}, {exclude: true}]});
-    const target = targets.targetInfos.find(t => t.url === tab.url()) || (
-      targets.targetInfos.length === 1 ? targets.targetInfos[0] : null
-    );
-    assert.ok(target, "Could not identify the isolated fixture tab.");
-    const trigger = () => browser.send("Extensions.triggerAction", {id: extensionId, targetId: target.targetId});
-    await trigger();
-    const chat = await panelDriver(path.join(root, "profile"), extensionId);
+    const openBrowser = async () => {
+      const fixtureContext = await chromium.launchPersistentContext(path.join(root, "profile"), {
+        executablePath: process.env.BLAIRSCOPE_TEST_BROWSER || edge, headless: true, ignoreHTTPSErrors: true, env,
+        ignoreDefaultArgs: ["--disable-extensions"],
+        args: ["--remote-debugging-port=0", "--enable-unsafe-extension-debugging", "--window-size=1280,1100",
+          "--disable-background-networking", "--no-proxy-server",
+          "--load-extension=" + addon, "--disable-extensions-except=" + addon,
+          "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1"]
+      });
+      await fixtureContext.route(/^https?:\/\//, route => {
+        const url = new URL(route.request().url());
+        return [origin, sandbox].includes(url.origin) ? route.continue() : route.abort();
+      });
+      return fixtureContext;
+    };
+    context = await openBrowser();
+    const {tab, browser, extensionId, trigger, chat} = await openPanel(context, origin);
     const read = chat.evaluate;
     const wait = chat.wait;
     await wait("document.querySelector('#ask')?.disabled === false");
@@ -163,16 +179,34 @@ async function main() {
     await wait("!byId('ask').disabled && byId('sources').textContent.includes('bfd/sessions')");
     assert.equal(calls.length, 9);
     assert.equal(calls.filter(c => c[2] === "?deviceId=192.0.2.14").length, 3);
-    await read("byId('question').value='Which router is unreachable at site 100? Give its hostname.'; byId('ask').click()");
+    await read("byId('question').value='Call this investigation Marigold. Which router is unreachable at site 100? Give its hostname.'; byId('ask').click()");
     await wait("!!document.querySelector('#thread article')", 270000);
     const answer = await read("byId('thread').innerText");
     assert.match(answer, /edge-fixture/i);
     assert.ok(!answer.includes(omittedCanary));
+    const savedId = await read("byId('saved').value");
+    assert.ok(savedId, "First exchange was not saved");
+    await read("byId('new-chat').click()");
+    assert.equal(await read("byId('thread').textContent"), "");
+    await read("byId('question').value='Did I already give this chat an investigation name? If none, say none.'; byId('ask').click()");
+    await wait("!!document.querySelector('#thread article') && !byId('ask').disabled", 270000);
+    assert.doesNotMatch(await read("byId('thread').innerText"), /marigold/i);
+    assert.notEqual(await read("byId('saved').value"), savedId);
+    await read(`byId('saved').value=${JSON.stringify(savedId)}; byId('saved').dispatchEvent(new Event('change'))`);
+    await wait("!!document.querySelector('#thread article') && !byId('ask').disabled");
+    await read("byId('question').value='What did I name this investigation earlier? Reply with its name.'; byId('ask').click()");
+    await wait("document.querySelectorAll('#thread article').length === 2", 270000);
+    assert.match(await read("byId('thread').lastElementChild.innerText"), /marigold/i);
     assert.equal(calls.length, 9, "Qwen chat made another Manager request");
     denyInventory = true;
     await read("byId('refresh').click()");
     await wait("byId('state').textContent.includes('Inventory denied')");
     assert.ok(await read("byId('ask').disabled"));
+    await read("byId('new-chat').click()");
+    await read(`byId('saved').value=${JSON.stringify(savedId)}; byId('saved').dispatchEvent(new Event('change'))`);
+    await wait("document.querySelectorAll('#thread article').length === 2");
+    assert.ok(await read("byId('ask').disabled"), "Reading a saved chat enabled questions without a snapshot");
+    assert.equal(calls.length, 10);
     denyInventory = false;
     expired = true;
     await read("byId('refresh').click()");
@@ -196,6 +230,7 @@ async function main() {
     await browser.send("Extensions.triggerAction", {id: extensionId, targetId: labTarget.targetId});
     await wait("!byId('ask').disabled && byId('manager').textContent.includes('localhost')");
     assert.equal(calls.length, 14);
+    assert.equal(await read("byId('saved').options.length"), 1, "Sandbox exposed a work conversation");
     if (process.env.BLAIRSCOPE_SCREENSHOT) {
       const {data} = await chat.command("Page.captureScreenshot", {format:"png", captureBeyondViewport:true,
         clip: await read("({x:0, y:0, width:innerWidth, height:document.documentElement.scrollHeight, scale:1})")});
@@ -207,12 +242,28 @@ async function main() {
     await tab.bringToFront();
     await trigger();
     await wait("!byId('ask').disabled && byId('manager').textContent.includes('127.0.0.1')");
+    await read(`byId('saved').value=${JSON.stringify(savedId)}; byId('saved').dispatchEvent(new Event('change'))`);
+    await wait("document.querySelectorAll('#thread article').length === 2");
     await labTab.bringToFront();
     await wait("byId('ask').disabled && !byId('sources').textContent && !byId('total').textContent");
     assert.equal(calls.length, 17, "Tab switch collected data without a toolbar action");
     assert.ok(calls.every(c => c[0] === "GET" && c[3]));
     chat.close();
-    console.log("Native sidebar, local GGUF and two isolated Manager tabs passed. Seventeen GETs, zero during chat.");
+    await context.close();
+    context = await openBrowser();
+    const restored = (await openPanel(context, origin)).chat;
+    await restored.wait("document.getElementById('ask')?.disabled === false");
+    await restored.evaluate(`const byId=id=>document.getElementById(id); byId('saved').value=${JSON.stringify(savedId)}; byId('saved').dispatchEvent(new Event('change'))`);
+    await restored.wait("document.querySelectorAll('#thread article').length === 2");
+    assert.match(await restored.evaluate("byId('thread').lastElementChild.innerText"), /marigold/i);
+    await restored.evaluate("byId('delete-chat').click(); byId('cancel-delete').click()");
+    assert.equal(await restored.evaluate("document.querySelectorAll('#thread article').length"), 2);
+    await restored.evaluate("byId('delete-chat').click(); byId('delete-chat').click()");
+    await restored.wait("!byId('thread').textContent && byId('saved').options.length === 2");
+    assert.ok(!await restored.evaluate(`Array.from(byId('saved').options).some(option=>option.value===${JSON.stringify(savedId)})`));
+    assert.equal(calls.length, 20, "Restoring and deleting the chat made extra Manager reads");
+    restored.close();
+    console.log("Native sidebar passed thread recall, isolation, browser restart and deletion with local Qwen. Zero extra Manager reads during chat.");
   } finally {
     if (context) await context.close();
     server.close();

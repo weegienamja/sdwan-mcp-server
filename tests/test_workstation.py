@@ -12,6 +12,27 @@ from cisco_vmanage_mcp.services.local_model import LocalModel, LocalModelError
 from cisco_vmanage_mcp.services.workstation import ManagerReader, ManagerReadError, manager_origin
 
 
+@pytest.mark.asyncio
+async def test_local_chat_bounds_old_turns_and_keeps_current_capture_last():
+    history = [{"question": f"Earlier site {i}", "answer": "Old reachability " * 900,
+                "captured": "2026-11-20T08:00:00Z"} for i in range(8)]
+
+    def check(request):
+        messages = json.loads(request.content)["messages"]
+        assert [m["role"] for m in messages] == ["system", *(["user", "assistant"] * 8), "user"]
+        assert all(f"Earlier site {i}" in messages[1 + 2 * i]["content"] for i in range(8))
+        assert sum(len(m["content"]) for m in messages[1:-1]) < 4600
+        assert "Fresh capture" in messages[-1]["content"]
+        assert "Old reachability" not in messages[-1]["content"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Updated."}}]})
+
+    async with httpx.AsyncClient(base_url="http://127.0.0.1", transport=httpx.MockTransport(check)) as client:
+        model = LocalModel(client, "qwen")
+        assert await model.explain("What about there?", {"source": "Fresh capture"}, history=history) == "Updated."
+        with pytest.raises(ValueError, match="history"):
+            await model.explain("Too many", {}, history=history * 2)
+
+
 @pytest.mark.parametrize("bad", [
     "http://manager", "https://user@manager", "manager/dataservice", "manager?tenant=1",
     "https://manager/#token", "manager\\other", "manager:invalid", "https://bad host",

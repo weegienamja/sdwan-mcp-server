@@ -57,7 +57,10 @@ button:disabled, select:disabled { opacity: .62; cursor: default; }
 details { margin-top: 11px; }
 summary { cursor: pointer; font-size: 13px; }
 #sources { font-size: 12px; padding-left: 17px; margin: 7px 0 0; }
-.chat h2 { margin-bottom: 13px; }
+.chat > .row, #saved { margin-bottom: 12px; }
+#earlier { margin-bottom: 10px; }
+#chat-options button { margin-top: 7px; }
+article time { display: block; color: var(--muted); font-size: 12px; }
 .send { margin-top: 9px; flex-wrap: nowrap; }
 #progress { font-size: 12px; }
 #ask { flex: none; margin-left: auto; background: var(--blue); color: #fff; border-color: transparent; padding: 8px 15px; }

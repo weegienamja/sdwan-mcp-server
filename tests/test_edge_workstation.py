@@ -50,6 +50,15 @@ def test_question_evidence_filters_sites_and_keeps_denied_counts_unknown():
     assert "east" not in json.dumps(data)
 
 
+def test_followup_scopes_to_previous_site_only_when_unambiguous():
+    snapshot = validate_capture(capture())
+    followup = question_evidence(snapshot, "What is unreachable there?", "Check site 100")
+    assert followup["site_in_scope"] == "100"
+    assert followup["device_sample"][0]["host-name"] == "west"
+    assert question_evidence(snapshot, "What is at site 200?", "Check site 100")["site_in_scope"] == "200"
+    assert question_evidence(snapshot, "What is down there?", "Compare site 100 and site 200")["site_in_scope"] is None
+
+
 @pytest.mark.parametrize("extra", ["cookie", "password", "Authorization", "running-config"])
 def test_rejects_unreviewed_fields(extra):
     snapshot = capture()

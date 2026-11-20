@@ -87,7 +87,7 @@ class DiagnosticSession:
     async def handle(self, message: dict) -> dict:
         kind = message.get("type")
         if kind == "hello":
-            return {"type": "hello", "manager": self.origins["work"], "origins": self.origins}
+            return {"type": "hello", "manager": self.origins["work"], "origins": self.origins, "chat_history": True}
         if kind == "select":
             self.snapshot = None
             mode = message.get("mode")
@@ -109,11 +109,19 @@ class DiagnosticSession:
         question = message.get("question")
         if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
             raise ValueError("Enter a question of up to 2,000 characters.")
+        history = message.get("history", [])
+        if not isinstance(history, list) or len(history) > 8:
+            raise ValueError("Invalid chat history.")
+        latest = history[-1] if history else {"question": ""}
+        previous_question = latest.get("question") if isinstance(latest, dict) else None
+        if not isinstance(previous_question, str) or len(previous_question) > 2000:
+            raise ValueError("Invalid previous question.")
+        evidence = question_evidence(self.snapshot, question, previous_question)
         if self.model is None:
             self.model = await self.stack.enter_async_context(run_local_model(
                 self.kit / "llama" / "llama-server.exe", Path(self.settings["model"]),
             ))
-        answer = await self.model.explain(question, question_evidence(self.snapshot, question))
+        answer = await self.model.explain(question, evidence, history=history)
         return {"type": "answer", "answer": answer[:16000]}
 
 

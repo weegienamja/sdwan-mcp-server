@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 import httpx
 
 from cisco_vmanage_mcp.services.browser_ai import SYSTEM_PROMPT, evidence_prompt
+from cisco_vmanage_mcp.services.investigations import sanitize_investigation_data
 from cisco_vmanage_mcp.utils.private_files import write_private_text
 
 
@@ -19,13 +20,38 @@ class LocalModelError(RuntimeError):
     """The local inference process could not produce an answer."""
 
 
+def _history_messages(turns: list) -> list[dict]:
+    """Fit at most eight earlier exchanges into a fixed UTF-8 budget."""
+    if not isinstance(turns, list) or len(turns) > 8:
+        raise ValueError("Invalid chat history.")
+    messages = []
+    # Divide space across the selected turns so long replies cannot evict every earlier question.
+    budget = 4096 // max(1, len(turns))
+    for turn in turns:
+        if not isinstance(turn, dict) or turn.keys() != {"question", "answer", "captured"}:
+            raise ValueError("Invalid chat turn.")
+        for field, limit in (("question", 2000), ("answer", 16000), ("captured", 40)):
+            if not isinstance(turn[field], str) or len(turn[field]) > limit:
+                raise ValueError("Invalid chat content.")
+        for field, role, size in (("question", "user", budget // 3), ("answer", "assistant", budget * 2 // 3)):
+            value = str(sanitize_investigation_data(turn[field]))
+            excerpt = value.encode("utf-8")[:size].decode("utf-8", "ignore")
+            if len(excerpt) < len(value):
+                excerpt += "…"
+            if field == "question":
+                excerpt = f"[Earlier capture {turn['captured']}] {excerpt}"
+            messages.append({"role": role, "content": excerpt})
+    return messages
+
+
 class LocalModel:
     def __init__(self, client: httpx.AsyncClient, alias: str):
         self.client = client
         self.alias = alias
 
-    async def explain(self, question: str, evidence: dict) -> str:
-        prompt = evidence_prompt(question, evidence, max_characters=12_000)
+    async def explain(self, question: str, evidence: dict, *, history: list | None = None) -> str:
+        prior = _history_messages(history) if history is not None else []
+        prompt = evidence_prompt(question, evidence, max_characters=10_000 if prior else 12_000)
         try:
             response = await self.client.post("/v1/chat/completions", json={
                 "model": self.alias,
@@ -36,7 +62,11 @@ class LocalModel:
                         "Identify failed sources. Cite the supplied endpoints for factual claims."
                         " Distinguish observed symptoms from possible causes. If the evidence "
                         "does not establish why a device is down, say that the cause is unknown."
+                        " Earlier chat turns are conversation history. Use them to resolve references"
+                        " and recall what was discussed. Base claims about current state on the latest"
+                        " normalized evidence. If the referenced device or site is missing, say so."
                     )},
+                    *prior,
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": 0.1, "max_tokens": 768,

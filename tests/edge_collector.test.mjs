@@ -2,12 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {collectSnapshot} from "../src/cisco_vmanage_mcp/edge_addon/collect.js";
+import {modelHistory} from "../src/cisco_vmanage_mcp/edge_addon/chats.js";
 
 const spec = JSON.parse(await readFile(new URL("../src/cisco_vmanage_mcp/edge_addon/reads.json", import.meta.url)));
 const origin = "https://fixture.invalid";
 globalThis.window = {get top() { return this; }};
 globalThis.location = new URL(origin);
 function json(data) { return Response.json({data}); }
+
+test("long chats select related older exchanges and preserve chronological order", () => {
+  const turns = Array.from({length: 15}, (_, i) => ({question: "Inspect device " + i, answer: "Checked"}));
+  turns[2].answer = "Marigold is assigned to Inverness";
+  turns[4].question = "When did Marigold start?";
+  assert.deepEqual(modelHistory(turns, "Check Marigold Inverness again"), [turns[2], turns[4], ...turns.slice(-6)]);
+  assert.deepEqual(modelHistory(turns, "that"), turns.slice(-8));
+  assert.deepEqual(modelHistory([], "Check Marigold"), []);
+});
 
 test("only approved fields leave the tab and every request is a fixed same-origin GET", async t => {
   const calls = [];

@@ -31,7 +31,9 @@ The ZIP includes the Windows app, the BlairScope extension, Python and the CPU i
 
 7. **Ask about the estate.** In **Question about this snapshot**, try **Which sites have unreachable devices?** and click **Ask Qwen**. Use **Device detail** for a device’s BFD sessions, control connections and system status. Choose **Refresh snapshot** when you want current evidence. Qwen answers from the captured data on your laptop.
 
-**To use the Cisco lab**, switch on **Sandbox mode** in the sidebar and choose **Sign in to DevNet**. Launch the SD-WAN lab from the catalogue. Follow the reservation’s instructions, sign in to its Manager, then click BlairScope on that tab. The toggle clears the previous snapshot and chat. For a different lab hostname, see [DevNet setup](docs/WORKSTATION.md#devnet-sandbox).
+**To continue an investigation**, ask a follow-up in the same conversation, or choose **New chat** to start with an empty history. **Saved chats** lets you read a conversation for this Manager even when it is unreachable. Capture a snapshot to continue the thread with current evidence. Each answer shows the snapshot time. [How local chat history works](docs/WORKSTATION.md#chat-history)
+
+**To use the Cisco lab**, switch on **Sandbox mode** in the sidebar and choose **Sign in to DevNet**. Launch the SD-WAN lab from the catalogue. Follow the reservation’s instructions, sign in to its Manager, then click BlairScope on that tab. Changing environments clears the displayed snapshot and transcript. Saved chats are scoped to each Manager and environment. For a different lab hostname, see [DevNet setup](docs/WORKSTATION.md#devnet-sandbox).
 
 **To try Qwen offline first**, open PowerShell in the extracted folder and run `& '.\Start SD-WAN.cmd' --check-model`. It asks the local GGUF about three sample devices.
 

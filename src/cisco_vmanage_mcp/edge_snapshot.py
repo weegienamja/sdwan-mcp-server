@@ -76,9 +76,13 @@ def _scope(devices: list[dict], question: str) -> tuple[list[dict], str | None, 
     return devices, site[1] if site and not target else None, bool(site or target)
 
 
-def question_evidence(capture: dict, question: str) -> dict:
+def question_evidence(capture: dict, question: str, previous_question: str = "") -> dict:
     tables = capture["tables"]
     devices, alarm_site, scoped = _scope(tables["inventory"]["rows"], question)
+    if not scoped and previous_question and re.search(r"\b(there|(?:that|same) site)\b", question, re.I):
+        sites = set(re.findall(r"\bsite(?:\s++id)?[\s:#-]*+(\d++)\b", previous_question, re.I | re.ASCII))
+        if len(sites) == 1:
+            devices, alarm_site, scoped = _scope(devices, "site " + sites.pop())
     matched_ips = {d["system-ip"] for d in devices if d.get("system-ip")}
     counts = Counter(str(device.get("reachability", "unknown")).lower() for device in devices)
     alarms = tables["alarms"]["rows"]
@@ -91,6 +95,7 @@ def question_evidence(capture: dict, question: str) -> dict:
         alarms = [a for a in alarms if str(a.get("severity", "")).lower() == "critical"]
     evidence = {
         "capture_time": capture["captured"],
+        "site_in_scope": alarm_site,
         "coverage": {READS[name]["path"]: table["state"] for name, table in tables.items()},
         "matching_device_count_in_capture": len(devices), "reachability_in_scope": dict(counts),
         "matching_alarm_count_in_capture": len(alarms) if tables["alarms"]["state"] in AVAILABLE else None,
