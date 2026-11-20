@@ -1,0 +1,8 @@
+{
+  "inventory": {"path":"/dataservice/device","limit":1500,"fields":["host-name","system-ip","site-id","device-type","device-model","reachability","state","bfdSessions","controlConnections"]},
+  "counts": {"path":"/dataservice/alarms/count","limit":32,"fields":["severity","count"]},
+  "alarms": {"path":"/dataservice/alarms","limit":250,"fields":["severity","type","rule_name_display","host-name","host_name","system-ip","system_ip","site-id","site_id"]},
+  "bfd": {"path":"/dataservice/device/bfd/sessions","limit":250,"fields":["system-ip","state","color","local-color","remote-color"]},
+  "control": {"path":"/dataservice/device/control/connections","limit":250,"fields":["system-ip","state","peer-type","local-color","remote-color"]},
+  "system": {"path":"/dataservice/device/system/status","limit":8,"fields":["min5_avg","mem_used","mem_total","disk_used","disk_size"]}
+}

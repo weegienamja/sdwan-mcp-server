@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "SD-WAN Workstation",
+  "description": "Diagnose the signed-in Cisco Manager estate with local Qwen.",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnV6UGBulm8Mu8GbnCpgrzi7u/eCB4i+lfxBiNngPK7IpHo3nrqQPQOIph3YiEPArjKy31L8p+TcpWdEjIIU+c51Dm15VdYD0kad+ovcCv2dhGdx7gu6g4mpS2cLtCgUmj5edvQ/PmJHfzLptDZm+KFrx4Iy3gwDUkLs9JVw4xiTfARJLSLGiD9sWApQrZmZh8k/wOgFzuUIITRHYa8+ACjRzvCo6csAZ7g0lNFmnOlX8yYv22e/UNkAT5U2R7Z73EFUAEbTsgJqqXG6HUC72kmH2fBfcV2DD3GMdu6BBb3j+5x12o4rf/IwREkSt7dejDN5UWwbIwpIcZe42G0hFDwIDAQAB",
+  "permissions": ["activeTab", "scripting", "nativeMessaging"],
+  "action": {"default_title": "Diagnose with local Qwen"},
+  "commands": {"_execute_action": {"suggested_key": {"default": "Alt+Shift+Q"}}},
+  "background": {"service_worker": "action.js"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self'; base-uri 'none'"}
+}

@@ -2,7 +2,20 @@
 
 Use your existing Qwen3.5-4B GGUF to ask about the devices visible to your own Cisco account. The workstation runs on one Windows x64 laptop. It includes Python and a CPU build of llama.cpp. The GGUF stays in your Downloads folder.
 
-## First run
+## Sign in with Edge
+
+1. Extract **SD-WAN-Workstation-Windows-x64.zip** into a permanent local folder. Run **Set up Edge.cmd** once. Enter the exact HTTPS origin of your Manager and select your downloaded Qwen3.5-4B GGUF. This registers the local native messaging host for your Windows user. Run setup again after moving the kit or changing Manager or model.
+2. Install the bundled **Edge extension** folder using your organisation's approved extension process. For an unpacked pilot on a laptop that permits it, open `edge://extensions`, enable **Developer mode**, choose **Load unpacked** and select **Edge extension**. Pin **SD-WAN Workstation** to the toolbar. Corporate policies may require IT distribution.
+3. Open the configured Manager in Edge, sign in through your normal SSO and MFA, then click **Diagnose with local Qwen** in the toolbar (or press **Alt+Shift+Q**). Keep the Manager tab open. A diagnostic tab shows the capture time, visible inventory and which reads succeeded.
+4. Ask a question such as **Which devices at site 100 are unreachable?** Choose a device under **Device detail** for BFD, control connections and system status. **Refresh snapshot** collects current data. Questions use the displayed snapshot until you refresh. Close the diagnostic tab to end the chat.
+
+This mode uses the browser's existing same-origin access. It requires neither a personal API token nor a gateway. The extension has temporary access to the activated tab and accepts only the Manager origin entered during setup. Its only Cisco requests are six fixed GETs. A 403, blocked read or login redirect is reported in the collection results. Some Manager releases require CSRF protection for particular reads. The extension honours these restrictions. [Cisco CSRF documentation](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/cisco-sd-wan-api-cross-site-request-forgery-prevention.html)
+
+Only allowlisted evidence fields and source status travel to the Windows process through Edge Native Messaging. Cisco session cookies, passwords, authorization headers and raw configurations stay out of the messages. Captures and chat stay in memory. Qwen has no mechanism for requesting new Manager data. Collection is capped at 1,500 inventory rows, 250 alarms and 250 rows per connection table, with partial or oversized responses identified. [Microsoft Edge Native Messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging)
+
+For deployment, setup writes `settings.json` and `edge-host.json` under `%LOCALAPPDATA%\SD-WAN Workstation` and registers `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\org.sdwan.workstation`. The host permits only the packaged extension ID, `beapjnblokiomlppfhbidaaabofbolci`. IT should verify the extension identity when preparing a managed or store distribution. Removing the extension, that registration and its settings folder removes the integration.
+
+## Terminal mode with a personal API token
 
 1. Extract the entire **SD-WAN-Workstation-Windows-x64.zip** into a local folder. Keep the launcher, Python and llama folders together. Use the ZIP supplied by your IT team or the **windows-workstation** artifact for the reviewed commit in this repository's GitHub Actions CI run.
 2. Double-click **Start SD-WAN.cmd**. It looks for Qwen3.5-4B in your Downloads folder. If several GGUFs match, choose a model. If your Downloads folder is redirected or the filename differs, paste the full path. For split files, keep all the shards together and choose the first.
@@ -25,7 +38,7 @@ Example questions
 
 The app retrieves fresh evidence for each question. Include the site ID or system IP again when narrowing a follow-up. Inventory, health, alarms and device diagnostics have dedicated queries. Other questions receive the fabric health summary as context. Device diagnostics include BFD sessions, control connections and system status where Cisco grants access. Large results are bounded to fit the local model.
 
-## What IT needs to verify
+## What IT needs to verify for terminal mode
 
 - **Authentication.** This kit targets the direct Manager API with profile-generated JWTs, introduced in 20.18.1. Use a personal role with API access, read permissions and the appropriate site or tenant scope. A token inherits its owner's Cisco permissions. Cisco documents one active profile token per account and a long lifetime. Ending the app drops its in-memory copy. Revocation takes place in Manager and can affect other tools using the same token. [Cisco token management](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/m-cisco-sd-wan-manager-jwt-based-authentication-for-apis.html)
 - **Deployment compatibility.** Confirm the Manager version and whether **API Token** appears for the operator after SSO. If it is absent, ask the SD-WAN owner which per-user integration the deployment permits. Older session-only versions and the distinct SD-WAN Cloud API gateway require a different integration. A Windows or Entra login alone does not authorize a Manager API request. [Cisco API authentication](https://developer.cisco.com/docs/sdwan/authentication/)

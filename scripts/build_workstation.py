@@ -1,6 +1,7 @@
 """Build the Windows x64 workstation kit on Windows with 64-bit Python 3.14."""
 
 import hashlib
+import io
 import platform
 import shutil
 import subprocess
@@ -22,6 +23,25 @@ def download(url: str, digest: str, target: Path) -> None:
         shutil.copyfileobj(response, output)
     if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
         raise RuntimeError(f"Upstream digest mismatch for {target.name}")
+
+
+def add_edge_integration(kit: Path) -> None:
+    from pip._vendor import distlib
+
+    shutil.copytree(ROOT / "src/cisco_vmanage_mcp/edge_addon", kit / "Edge extension")
+    shutil.copy2(ROOT / "scripts" / "Set up Edge.cmd", kit)
+    # distlib's console launcher resolves this interpreter relative to itself after extraction.
+    vendor = Path(distlib.__file__).parent
+    stub = (vendor / "t64.exe").read_bytes()
+    if "<launcher_dir>".encode("utf-16le") not in stub:
+        raise RuntimeError("This pip distribution lacks a relocatable Windows launcher.")
+    script = io.BytesIO()
+    with ZipFile(script, "w") as archive:
+        archive.writestr("__main__.py", "from cisco_vmanage_mcp.edge_host import main\nraise SystemExit(main())\n")
+    (kit / "sdwan-edge-host.exe").write_bytes(
+        stub + b"#!<launcher_dir>\\python\\python.exe -B -X utf8\n" + script.getvalue()
+    )
+    shutil.copy2(vendor / "LICENSE.txt", kit / "LICENSE-distlib.txt")
 
 
 def build(stage: Path) -> Path:
@@ -56,6 +76,7 @@ def build(stage: Path) -> Path:
     shutil.copy2(ROOT / "LICENSE", kit / "LICENSE")
     shutil.copy2(ROOT / "docs" / "WORKSTATION.md", kit / "README.md")
     shutil.copy2(ROOT / "scripts" / "Start SD-WAN.cmd", kit)
+    add_edge_integration(kit)
     subprocess.run([str(python_dir / "python.exe"), "-m", "cisco_vmanage_mcp.workstation", "--help"],
                    cwd=kit, check=True)
     target = ROOT / "dist" / "SD-WAN-Workstation-Windows-x64.zip"

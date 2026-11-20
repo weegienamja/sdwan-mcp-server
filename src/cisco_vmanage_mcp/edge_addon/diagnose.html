@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SD-WAN diagnostics</title><link rel="stylesheet" href="diagnose.css"></head>
+<body><main>
+  <header><h1>SD-WAN diagnostics</h1><p id="manager">Connecting to the Windows workstation…</p></header>
+  <section aria-labelledby="capture"><h2 id="capture">Manager snapshot</h2>
+    <p id="state" role="status">Checking the signed-in tab…</p>
+    <div class="controls"><label>Device detail<select id="device" disabled><option value="">Estate overview</option></select></label>
+    <button id="refresh" disabled>Refresh snapshot</button></div>
+    <details><summary>Collection results</summary><ul id="sources"></ul></details>
+  </section>
+  <section aria-labelledby="chat"><h2 id="chat">Ask local Qwen</h2>
+    <div id="thread" aria-live="polite"></div>
+    <form><label for="question">Question about this snapshot</label>
+      <textarea id="question" maxlength="2000" rows="2" required placeholder="Which sites have unreachable edges?"></textarea>
+      <button id="ask" disabled>Ask Qwen</button><span id="progress" role="status"></span>
+    </form>
+  </section>
+</main><script type="module" src="diagnose.js"></script></body></html>
