@@ -476,8 +476,8 @@ make build
 ### Adding a New Tool
 
 1. Add a formatter function in `utils/formatters.py`
-2. Register the tool in the appropriate `tools/` file using `@mcp.tool()` with flat parameters (not Pydantic models)
-3. Add `@audit_tool("tool_name")` decorator for audit logging
+2. Define an async function with flat parameters in the appropriate `tools/` module. Its function name is the public MCP tool name.
+3. Decorate the function with `@audit_tool("tool_name")` and add the function and its display title to the registration list in `server.py`.
 4. For diagnostic tools, add computation logic in `services/` and keep the tool thin
 5. Add unit tests with mocked API responses in `tests/`
 6. The tool is automatically available after server restart

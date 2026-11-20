@@ -16,20 +16,14 @@ import json
 
 from mcp.server.fastmcp import Context
 
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
 from cisco_vmanage_mcp.services.correlation import correlate_fabric_state, diagnose_device
 from cisco_vmanage_mcp.services.health_check import (
     assess_fabric_health,
 )
-from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 
 
-@mcp.tool(
-    name="vmanage_assess_fabric_health",
-    annotations=read_only_annotations("Assess Fabric Health (Correlated)"),
-)
 @audit_tool("vmanage_assess_fabric_health")
 async def vmanage_assess_fabric_health(
     ctx: Context,
@@ -119,10 +113,6 @@ async def vmanage_assess_fabric_health(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_diagnose_device",
-    annotations=read_only_annotations("Diagnose Device (Deep Analysis)"),
-)
 @audit_tool("vmanage_diagnose_device")
 async def vmanage_diagnose_device(
     system_ip: str,
@@ -209,10 +199,6 @@ async def vmanage_diagnose_device(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_pre_change_validation",
-    annotations=read_only_annotations("Pre-Change Validation"),
-)
 @audit_tool("vmanage_pre_change_validation")
 async def vmanage_pre_change_validation(
     ctx: Context,
@@ -355,10 +341,6 @@ async def vmanage_pre_change_validation(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_incident_summary",
-    annotations=read_only_annotations("Incident Summary"),
-)
 @audit_tool("vmanage_incident_summary")
 async def vmanage_incident_summary(
     ctx: Context,

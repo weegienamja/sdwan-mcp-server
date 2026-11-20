@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from cisco_vmanage_mcp.services.investigations import InvestigationStore
+from tests.permissions import assert_private_permissions
 
 
 def test_investigation_round_trip_is_encrypted_and_private(tmp_path) -> None:
@@ -35,9 +36,9 @@ def test_investigation_round_trip_is_encrypted_and_private(tmp_path) -> None:
     assert [message.role for message in loaded.messages] == ["user", "assistant"]
     assert loaded.pins[0]["label"] == "edge-1"
     assert b"Diagnose edge-1" not in store.database_path.read_bytes()
-    assert store.database_path.stat().st_mode & 0o777 == 0o600
-    assert store.key_path.stat().st_mode & 0o777 == 0o600
-    assert store.state_dir.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(store.database_path, 0o600)
+    assert_private_permissions(store.key_path, 0o600)
+    assert_private_permissions(store.state_dir, 0o700)
 
 
 def test_investigation_retention_and_delete(tmp_path) -> None:

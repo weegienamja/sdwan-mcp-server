@@ -4,9 +4,7 @@ import json
 
 from mcp.server.fastmcp import Context
 
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
-from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
     _ms_to_readable,
@@ -18,10 +16,6 @@ from cisco_vmanage_mcp.utils.formatters import (
 )
 
 
-@mcp.tool(
-    name="vmanage_list_devices",
-    annotations=read_only_annotations("List SD-WAN Devices"),
-)
 @audit_tool("vmanage_list_devices")
 async def vmanage_list_devices(
     ctx: Context,
@@ -103,10 +97,6 @@ async def vmanage_list_devices(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_device_status",
-    annotations=read_only_annotations("Get Device Status"),
-)
 @audit_tool("vmanage_get_device_status")
 async def vmanage_get_device_status(
     system_ip: str,
@@ -166,10 +156,6 @@ async def vmanage_get_device_status(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_device_counters",
-    annotations=read_only_annotations("Get Device Counters"),
-)
 @audit_tool("vmanage_get_device_counters")
 async def vmanage_get_device_counters(
     system_ip: str,
@@ -198,10 +184,6 @@ async def vmanage_get_device_counters(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_device_interfaces",
-    annotations=read_only_annotations("Get Device Interfaces"),
-)
 @audit_tool("vmanage_get_device_interfaces")
 async def vmanage_get_device_interfaces(
     system_ip: str,

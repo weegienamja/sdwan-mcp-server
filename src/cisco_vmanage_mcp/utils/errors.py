@@ -9,7 +9,6 @@ from cisco_vmanage_mcp.client import (
     PermissionError,
     RateLimitError,
     TimeoutError,
-    VManageAPIError,
     VManageError,
 )
 
@@ -55,9 +54,6 @@ def handle_api_error(e: Exception) -> str:
             "VMANAGE_PORT are correct and the instance is running. "
             "The DevNet sandbox may be temporarily unavailable."
         )
-
-    if isinstance(e, VManageAPIError):
-        return f"Error: {str(e)}"
 
     if isinstance(e, VManageError):
         return f"Error: {str(e)}"

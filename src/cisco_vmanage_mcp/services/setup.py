@@ -6,7 +6,6 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
-from uuid import uuid4
 
 import idna
 from dotenv import dotenv_values
@@ -17,6 +16,7 @@ from cisco_vmanage_mcp.services.qualification import (
     EnvironmentQualification,
     qualify_environment,
 )
+from cisco_vmanage_mcp.utils.private_files import write_private_text
 
 SETUP_SCHEMA_VERSION = 1
 
@@ -237,32 +237,7 @@ class LocalSetupService:
             f"{key}={_dotenv_quote(value)}\n"
             for key, value in sorted(existing.items())
         )
-        self._write_private(content)
-
-    def _write_private(self, content: str) -> None:
-        self.config_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if os.name != "nt":
-            self.config_file.parent.chmod(0o700)
-        temporary = self.config_file.with_name(
-            f".{self.config_file.name}.{uuid4().hex}.tmp"
-        )
-        descriptor = os.open(
-            temporary,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-        )
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-                descriptor = -1
-                output.write(content)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, self.config_file)
-            if os.name != "nt":
-                self.config_file.chmod(0o600)
+            write_private_text(self.config_file, content, restrict_parent=True)
         except OSError as exc:
             raise SetupError("Unable to save local connection settings") from exc
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
-            temporary.unlink(missing_ok=True)

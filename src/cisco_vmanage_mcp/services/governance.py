@@ -439,19 +439,6 @@ class GovernanceStore:
         self._authorize_tenant(actor, record.tenant_id)
         return self._view(record, now or datetime.now(UTC))
 
-    def list_collaborations(self, actor_id: str) -> list[CollaborationRecord]:
-        """List collaboration records visible to one tenant-scoped actor."""
-        actor = self._active_actor(actor_id)
-        with self._lock, private_sqlite_connection(self.database_path) as connection:
-            rows = connection.execute(
-                "SELECT payload FROM collaborations ORDER BY updated_at DESC, rowid DESC"
-            ).fetchall()
-        return [
-            self._view(record, datetime.now(UTC))
-            for row in rows
-            if (record := self._decrypt_record(row[0])).tenant_id == actor.tenant_id
-        ]
-
     def add_comment(
         self,
         investigation_id: str,

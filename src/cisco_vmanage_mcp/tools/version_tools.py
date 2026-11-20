@@ -13,9 +13,7 @@ import re
 from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp import __version__
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
-from cisco_vmanage_mcp.tools import read_only_annotations
 
 logger = logging.getLogger("cisco_vmanage_mcp.version_tool")
 
@@ -53,10 +51,6 @@ def _parse_version(version_str: str) -> tuple[int, ...]:
     return (0, 0, 0)
 
 
-@mcp.tool(
-    name="vmanage_check_version",
-    annotations=read_only_annotations("Check Server Version"),
-)
 @audit_tool("vmanage_check_version")
 async def vmanage_check_version(
     ctx: Context,

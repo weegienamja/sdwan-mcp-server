@@ -5,9 +5,7 @@ import time
 
 from mcp.server.fastmcp import Context
 
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
-from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
     _safe_str,
@@ -45,10 +43,6 @@ def _build_event_query(hours_back: int, system_ip: str | None) -> str | None:
     )
 
 
-@mcp.tool(
-    name="vmanage_list_alarms",
-    annotations=read_only_annotations("List Active Alarms"),
-)
 @audit_tool("vmanage_list_alarms")
 async def vmanage_list_alarms(
     ctx: Context,
@@ -119,10 +113,6 @@ async def vmanage_list_alarms(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_alarm_count",
-    annotations=read_only_annotations("Get Alarm Counts"),
-)
 @audit_tool("vmanage_get_alarm_count")
 async def vmanage_get_alarm_count(
     ctx: Context,
@@ -157,10 +147,6 @@ async def vmanage_get_alarm_count(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_list_events",
-    annotations=read_only_annotations("List System Events"),
-)
 @audit_tool("vmanage_list_events")
 async def vmanage_list_events(
     ctx: Context,

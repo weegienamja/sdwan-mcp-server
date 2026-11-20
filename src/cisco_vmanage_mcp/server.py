@@ -11,6 +11,17 @@ from cisco_vmanage_mcp.telemetry import (
     initialize_ide_telemetry,
     shutdown_ide_telemetry,
 )
+from cisco_vmanage_mcp.tools import (
+    alarm_tools,
+    config_tools,
+    device_tools,
+    diagnostic_tools,
+    health_tools,
+    policy_tools,
+    read_only_annotations,
+    tunnel_tools,
+    version_tools,
+)
 
 # Suppress noisy HTTP request logs that pollute MCP stdio transport
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -38,19 +49,30 @@ mcp = FastMCP(
 # Official FastMCP currently exposes the low-level version only after construction.
 mcp._mcp_server.version = __version__
 
-# Import and register all tools
-# These imports must come AFTER mcp is defined since the tool modules
-# import mcp and use the @mcp.tool() decorator
-from cisco_vmanage_mcp.tools import (
-    alarm_tools,  # noqa: F401, E402
-    config_tools,  # noqa: F401, E402
-    device_tools,  # noqa: F401, E402
-    diagnostic_tools,  # noqa: F401, E402
-    health_tools,  # noqa: F401, E402
-    policy_tools,  # noqa: F401, E402
-    tunnel_tools,  # noqa: F401, E402
-    version_tools,  # noqa: F401, E402
-)
+for function, title in (
+    (alarm_tools.vmanage_list_alarms, "List Active Alarms"),
+    (alarm_tools.vmanage_get_alarm_count, "Get Alarm Counts"),
+    (alarm_tools.vmanage_list_events, "List System Events"),
+    (config_tools.vmanage_get_running_config, "Get Running Config"),
+    (device_tools.vmanage_list_devices, "List SD-WAN Devices"),
+    (device_tools.vmanage_get_device_status, "Get Device Status"),
+    (device_tools.vmanage_get_device_counters, "Get Device Counters"),
+    (device_tools.vmanage_get_device_interfaces, "Get Device Interfaces"),
+    (diagnostic_tools.vmanage_assess_fabric_health, "Assess Fabric Health (Correlated)"),
+    (diagnostic_tools.vmanage_diagnose_device, "Diagnose Device (Deep Analysis)"),
+    (diagnostic_tools.vmanage_pre_change_validation, "Pre-Change Validation"),
+    (diagnostic_tools.vmanage_incident_summary, "Incident Summary"),
+    (health_tools.vmanage_get_system_status, "Get System Status"),
+    (health_tools.vmanage_get_control_status, "Get Control Connections"),
+    (health_tools.vmanage_get_fabric_summary, "Get Fabric Summary"),
+    (policy_tools.vmanage_list_policies, "List vSmart Policies"),
+    (policy_tools.vmanage_list_templates, "List Device Templates"),
+    (tunnel_tools.vmanage_list_tunnels, "List Device Tunnels"),
+    (tunnel_tools.vmanage_get_bfd_sessions, "Get BFD Sessions"),
+    (tunnel_tools.vmanage_get_omp_peers, "Get OMP Peers"),
+    (version_tools.vmanage_check_version, "Check Server Version"),
+):
+    mcp.add_tool(function, annotations=read_only_annotations(title))
 
 
 def main():

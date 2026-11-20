@@ -6,7 +6,9 @@ import pytest
 from dotenv import dotenv_values
 from pydantic import ValidationError
 
-from cisco_vmanage_mcp.services.setup import LocalSetupService, VManageSetupInput
+from cisco_vmanage_mcp.services.setup import LocalSetupService, SetupError, VManageSetupInput
+from cisco_vmanage_mcp.utils import private_files
+from tests.permissions import assert_private_permissions
 
 
 class SetupClient:
@@ -91,8 +93,23 @@ def test_setup_save_is_private_atomic_and_never_exposed_by_status(tmp_path) -> N
     assert saved["VMANAGE_USERNAME"] == "operator"
     assert saved["VMANAGE_PASSWORD"] == "super-secret"
     assert saved["VMANAGE_VERIFY_SSL"] == "true"
-    assert config_file.stat().st_mode & 0o777 == 0o600
-    assert config_file.parent.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(config_file, 0o600)
+    assert_private_permissions(config_file.parent, 0o700)
     assert status.credentials_configured is True
     assert "operator" not in status.model_dump_json()
     assert "super-secret" not in status.model_dump_json()
+
+
+def test_failed_config_replacement_preserves_previous_settings(tmp_path, monkeypatch) -> None:
+    config_file = tmp_path / "vmanage.env"
+    config_file.write_text("VMANAGE_HOST=previous\n", encoding="utf-8")
+
+    def fail_replace(_temporary, _destination):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(private_files.os, "replace", fail_replace)
+    with pytest.raises(SetupError, match="Unable to save"):
+        LocalSetupService(config_file).save(_values())
+
+    assert config_file.read_text(encoding="utf-8") == "VMANAGE_HOST=previous\n"
+    assert list(tmp_path.iterdir()) == [config_file]

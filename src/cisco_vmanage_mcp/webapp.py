@@ -877,7 +877,7 @@ def create_web_app(
         body: dict[str, Any],
     ) -> Literal["evidence", "generative"] | JSONResponse:
         mode = body.get("assistant_mode", "evidence")
-        if mode not in {"evidence", "generative"}:
+        if mode not in ("evidence", "generative"):
             return JSONResponse({"error": "assistant_mode is invalid"}, status_code=400)
         if mode == "generative" and request.app.state.browser_explainer is None:
             return JSONResponse(
@@ -973,7 +973,7 @@ def create_web_app(
         except Exception as exc:
             return JSONResponse({"error": _browser_error(exc)}, status_code=502)
 
-    async def chat(request: Request) -> Response:
+    async def chat(request: Request, *, stream: bool = False) -> Response:
         assistant = assistant_for(request)
         if isinstance(assistant, JSONResponse):
             return assistant
@@ -991,16 +991,15 @@ def create_web_app(
                 {"error": f"message must be {MAX_MESSAGE_LENGTH} characters or fewer"},
                 status_code=400,
             )
-        investigation_id: str | None = None
-        requested_investigation_id = body.get("investigation_id")
+        message = message.strip()
+        investigation_id = body.get("investigation_id")
         store: InvestigationStore | None = None
-        if requested_investigation_id is not None:
-            if not isinstance(requested_investigation_id, str) or not requested_investigation_id:
+        if investigation_id is not None:
+            if not isinstance(investigation_id, str) or not investigation_id:
                 return JSONResponse(
                     {"error": "investigation_id must be a non-empty string"},
                     status_code=400,
                 )
-            investigation_id = requested_investigation_id
             selected_store = await store_for(request)
             if isinstance(selected_store, JSONResponse):
                 return selected_store
@@ -1011,128 +1010,49 @@ def create_web_app(
                 store.append_message,
                 investigation_id,
                 "user",
-                message.strip(),
-            )
-        try:
-            result = await assistant.ask(message.strip())
-        except Exception as exc:
-            error = _browser_error(exc)
-            if store is not None and investigation_id is not None:
-                await run_in_threadpool(
-                    store.append_message,
-                    investigation_id,
-                    "system",
-                    error,
-                )
-            return JSONResponse({"error": error}, status_code=502)
-        result = await apply_browser_explanation(
-            request,
-            message.strip(),
-            result,
-            assistant_mode,
-        )
-        if store is not None and investigation_id is not None:
-            await run_in_threadpool(
-                store.append_message,
-                investigation_id,
-                "assistant",
-                result["answer"],
-                evidence=result.get("evidence", []),
-            )
-            result["investigation_id"] = investigation_id
-        return JSONResponse(result)
-
-    async def stream_chat(request: Request) -> Response:
-        assistant = assistant_for(request)
-        if isinstance(assistant, JSONResponse):
-            return assistant
-        body = await json_body(request)
-        if isinstance(body, JSONResponse):
-            return body
-        assistant_mode = assistant_mode_for(request, body)
-        if isinstance(assistant_mode, JSONResponse):
-            return assistant_mode
-        message = body.get("message", "")
-        if not isinstance(message, str) or not message.strip():
-            return JSONResponse({"error": "message is required"}, status_code=400)
-        if len(message) > MAX_MESSAGE_LENGTH:
-            return JSONResponse(
-                {"error": f"message must be {MAX_MESSAGE_LENGTH} characters or fewer"},
-                status_code=400,
-            )
-        investigation_id: str | None = None
-        requested_investigation_id = body.get("investigation_id")
-        store: InvestigationStore | None = None
-        if requested_investigation_id is not None:
-            if not isinstance(requested_investigation_id, str) or not requested_investigation_id:
-                return JSONResponse(
-                    {"error": "investigation_id must be a non-empty string"},
-                    status_code=400,
-                )
-            investigation_id = requested_investigation_id
-            selected_store = await store_for(request)
-            if isinstance(selected_store, JSONResponse):
-                return selected_store
-            store = selected_store
-            if await run_in_threadpool(store.get, investigation_id) is None:
-                return JSONResponse({"error": "Investigation not found"}, status_code=404)
-            await run_in_threadpool(
-                store.append_message,
-                investigation_id,
-                "user",
-                message.strip(),
+                message,
             )
 
-        async def events() -> AsyncIterator[str]:
-            async for event in assistant.stream(message.strip()):
+        async def events() -> AsyncIterator[dict[str, Any]]:
+            async for event in assistant.stream(message):
                 if event["phase"] == "completed":
                     if assistant_mode == "generative":
-                        progress = {"phase": "explaining"}
-                        yield (
-                            "event: progress\n"
-                            f"data: {json.dumps(progress, separators=(',', ':'))}\n\n"
+                        yield {"phase": "explaining"}
+                    result = await apply_browser_explanation(
+                        request, message, event["result"], assistant_mode
+                    )
+                    if store is not None and investigation_id is not None:
+                        await run_in_threadpool(
+                            store.append_message, investigation_id, "assistant",
+                            result["answer"], evidence=result.get("evidence", []),
                         )
-                    event["result"] = await apply_browser_explanation(
-                        request,
-                        message.strip(),
-                        event["result"],
-                        assistant_mode,
-                    )
-                if (
-                    store is not None
-                    and investigation_id is not None
-                    and event["phase"] == "completed"
-                ):
-                    result = event["result"]
-                    await run_in_threadpool(
-                        store.append_message,
-                        investigation_id,
-                        "assistant",
-                        result["answer"],
-                        evidence=result.get("evidence", []),
-                    )
-                    result["investigation_id"] = investigation_id
-                elif (
-                    store is not None
-                    and investigation_id is not None
-                    and event["phase"] == "error"
-                ):
-                    await run_in_threadpool(
-                        store.append_message,
-                        investigation_id,
-                        "system",
-                        event["error"],
-                    )
-                yield f"event: progress\ndata: {json.dumps(event, separators=(',', ':'))}\n\n"
+                        result["investigation_id"] = investigation_id
+                    event["result"] = result
+                elif event["phase"] == "error" and store is not None and investigation_id is not None:
+                    await run_in_threadpool(store.append_message, investigation_id, "system", event["error"])
+                yield event
 
-        return StreamingResponse(
-            events(),
-            media_type="text/event-stream",
-            headers={
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        if stream:
+            async def server_sent_events() -> AsyncIterator[str]:
+                async for event in events():
+                    data = json.dumps(event, separators=(",", ":"))
+                    yield f"event: progress\ndata: {data}\n\n"
+
+            return StreamingResponse(
+                server_sent_events(),
+                media_type="text/event-stream",
+                headers={"Connection": "keep-alive", "X-Accel-Buffering": "no"},
+            )
+
+        async for event in events():
+            if event["phase"] == "completed":
+                return JSONResponse(event["result"])
+            if event["phase"] == "error":
+                return JSONResponse({"error": event["error"]}, status_code=502)
+        return JSONResponse({"error": "Evidence collection ended without a result"}, status_code=502)
+
+    async def stream_chat(request: Request) -> Response:
+        return await chat(request, stream=True)
 
     async def list_investigations(request: Request) -> Response:
         store = await store_for(request)

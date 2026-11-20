@@ -4,9 +4,7 @@ import json
 
 from mcp.server.fastmcp import Context
 
-from cisco_vmanage_mcp.server import mcp
 from cisco_vmanage_mcp.services.audit import audit_tool
-from cisco_vmanage_mcp.tools import read_only_annotations
 from cisco_vmanage_mcp.utils.errors import handle_api_error
 from cisco_vmanage_mcp.utils.formatters import (
     _safe_str,
@@ -16,10 +14,6 @@ from cisco_vmanage_mcp.utils.formatters import (
 )
 
 
-@mcp.tool(
-    name="vmanage_list_tunnels",
-    annotations=read_only_annotations("List Device Tunnels"),
-)
 @audit_tool("vmanage_list_tunnels")
 async def vmanage_list_tunnels(
     system_ip: str,
@@ -74,10 +68,6 @@ async def vmanage_list_tunnels(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_bfd_sessions",
-    annotations=read_only_annotations("Get BFD Sessions"),
-)
 @audit_tool("vmanage_get_bfd_sessions")
 async def vmanage_get_bfd_sessions(
     system_ip: str,
@@ -129,10 +119,6 @@ async def vmanage_get_bfd_sessions(
         return handle_api_error(e)
 
 
-@mcp.tool(
-    name="vmanage_get_omp_peers",
-    annotations=read_only_annotations("Get OMP Peers"),
-)
 @audit_tool("vmanage_get_omp_peers")
 async def vmanage_get_omp_peers(
     system_ip: str,

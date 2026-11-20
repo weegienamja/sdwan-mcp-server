@@ -9,6 +9,7 @@ from logging.handlers import RotatingFileHandler
 import pytest
 
 from cisco_vmanage_mcp.services import audit
+from tests.permissions import assert_private_permissions
 
 
 @pytest.fixture
@@ -73,8 +74,8 @@ def test_audit_file_is_private_and_rotating(
 
     assert any(isinstance(handler, RotatingFileHandler) for handler in logger.handlers)
     assert not any(type(handler) is logging.StreamHandler for handler in logger.handlers)
-    assert log_path.stat().st_mode & 0o777 == 0o600
-    assert log_path.parent.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(log_path, 0o600)
+    assert_private_permissions(log_path.parent, 0o700)
 
 
 def test_audit_setup_failure_is_nonfatal_and_visible(

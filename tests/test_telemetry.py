@@ -8,6 +8,7 @@ import pytest
 
 from cisco_vmanage_mcp import telemetry
 from cisco_vmanage_mcp.services import audit
+from tests.permissions import assert_private_permissions
 
 
 def test_event_uses_random_installation_id_not_username(
@@ -25,8 +26,8 @@ def test_event_uses_random_installation_id_not_username(
     assert "user_hash" not in first
     assert first["installation_id"] == second["installation_id"]
     assert len(first["installation_id"]) == 64
-    assert installation_file.stat().st_mode & 0o777 == 0o600
-    assert installation_file.parent.stat().st_mode & 0o777 == 0o700
+    assert_private_permissions(installation_file, 0o600)
+    assert_private_permissions(installation_file.parent, 0o700)
 
 
 @pytest.mark.asyncio

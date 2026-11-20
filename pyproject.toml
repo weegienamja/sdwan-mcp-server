@@ -19,6 +19,7 @@ dependencies = [
     "idna>=3.15",
     "pydantic-settings>=2.14.2",
     "pyjwt[crypto]>=2.13.0",
+    "pywin32>=310; sys_platform == 'win32'",
     "python-multipart>=0.0.31",
     "starlette>=1.3.1",
     "uvicorn>=0.42.0",
@@ -30,9 +31,6 @@ vmanage-mcp = "cisco_vmanage_mcp.cli:cli"
 vmanage-mcp-install = "cisco_vmanage_mcp.installer:main"
 vmanage-console = "cisco_vmanage_mcp.app:main"
 vmanage-web = "cisco_vmanage_mcp.webapp:main"
-
-# Note: When running with python -m, use 'python -m cisco_vmanage_mcp'
-# (not 'python -m cisco_vmanage_mcp.server') to avoid duplicate module loading.
 
 [build-system]
 requires = ["hatchling"]
@@ -90,7 +88,6 @@ select = ["ASYNC", "B", "E4", "E7", "E9", "F", "I", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["B017"]
-"src/cisco_vmanage_mcp/server.py" = ["E402"]
 
 [tool.pyright]
 include = ["src", "tests", "scripts/live_readonly_audit.py"]

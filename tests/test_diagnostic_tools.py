@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,13 +12,7 @@ from cisco_vmanage_mcp.services.health_check import (
     FabricHealthReport,
 )
 from cisco_vmanage_mcp.tools import diagnostic_tools
-from tests.test_retrieval_tools import DEVICE, RESPONSES
-
-
-def _context():
-    return SimpleNamespace(
-        request_context=SimpleNamespace(lifespan_context={"vmanage": object()})
-    )
+from tests.test_retrieval_tools import DEVICE, RESPONSES, tool_context
 
 
 class DiagnosticClient:
@@ -85,7 +78,7 @@ async def test_pre_change_validation_fails_closed(
     )
 
     raw_result = await diagnostic_tools.vmanage_pre_change_validation(
-        ctx=_context(),
+        ctx=tool_context(object()),
         response_format="json",
     )
     result = json.loads(raw_result)
@@ -98,11 +91,7 @@ async def test_pre_change_validation_fails_closed(
 @pytest.mark.parametrize("response_format", ["json", "markdown"])
 async def test_assess_fabric_health_formats(response_format) -> None:
     result = await diagnostic_tools.vmanage_assess_fabric_health(
-        ctx=SimpleNamespace(
-            request_context=SimpleNamespace(
-                lifespan_context={"vmanage": DiagnosticClient()}
-            )
-        ),
+        ctx=tool_context(DiagnosticClient()),
         response_format=response_format,
     )
 
@@ -117,11 +106,7 @@ async def test_assess_fabric_health_formats(response_format) -> None:
 async def test_diagnose_device_formats(response_format) -> None:
     result = await diagnostic_tools.vmanage_diagnose_device(
         system_ip="10.0.0.1",
-        ctx=SimpleNamespace(
-            request_context=SimpleNamespace(
-                lifespan_context={"vmanage": DiagnosticClient(unhealthy=True)}
-            )
-        ),
+        ctx=tool_context(DiagnosticClient(unhealthy=True)),
         response_format=response_format,
     )
 
@@ -141,11 +126,7 @@ async def test_pre_change_validation_health_decision(
     recommendation,
 ) -> None:
     result = await diagnostic_tools.vmanage_pre_change_validation(
-        ctx=SimpleNamespace(
-            request_context=SimpleNamespace(
-                lifespan_context={"vmanage": DiagnosticClient(unhealthy)}
-            )
-        ),
+        ctx=tool_context(DiagnosticClient(unhealthy)),
         response_format="json",
     )
 
@@ -160,11 +141,7 @@ async def test_incident_summary_formats_and_audiences(
     response_format,
 ) -> None:
     result = await diagnostic_tools.vmanage_incident_summary(
-        ctx=SimpleNamespace(
-            request_context=SimpleNamespace(
-                lifespan_context={"vmanage": DiagnosticClient(unhealthy=True)}
-            )
-        ),
+        ctx=tool_context(DiagnosticClient(unhealthy=True)),
         audience=audience,
         response_format=response_format,
     )

@@ -10,19 +10,23 @@ import getpass
 import json
 import logging
 import os
+import ssl
 import sys
 import time
 from collections.abc import Awaitable, Callable, Coroutine
 from importlib import import_module
 from importlib.resources import files
 from pathlib import Path
+from types import ModuleType
 from typing import Any
+
+from cisco_vmanage_mcp.utils.private_files import write_private_text
 
 logger = logging.getLogger("cisco_vmanage_mcp.ai_providers")
 
 # ── SSL / CA bundle (Cisco Umbrella SSL inspection workaround) ────────────────
 
-def _ca_bundle_path() -> str | None:
+def provider_ca_bundle_path() -> str | None:
     """Return an explicitly configured CA bundle for optional AI providers."""
     configured = os.getenv("AI_CA_BUNDLE", "").strip()
     if not configured:
@@ -112,9 +116,22 @@ def get_saved_api_key(provider_name: str) -> str | None:
     return _get_saved_api_key(provider_name)
 
 
-def provider_ca_bundle_path() -> str | None:
-    """Return the explicitly configured optional-provider CA bundle."""
-    return _ca_bundle_path()
+def _provider_transport(sdk: ModuleType) -> Any:
+    """Use the HTTP client supported by the installed provider SDK."""
+    ca = provider_ca_bundle_path()
+    if ca is None:
+        return None
+    return sdk.DefaultHttpxClient(verify=ssl.create_default_context(cafile=ca))
+
+
+def create_claude_client(api_key: str) -> Any:
+    sdk = import_module("anthropic")
+    return sdk.Anthropic(api_key=api_key, http_client=_provider_transport(sdk))
+
+
+def create_openai_client(api_key: str) -> Any:
+    sdk = import_module("openai")
+    return sdk.OpenAI(api_key=api_key, http_client=_provider_transport(sdk))
 
 
 def _load_config() -> dict:
@@ -135,18 +152,7 @@ def _load_config() -> dict:
 
 def _save_config(config: dict) -> None:
     sanitized = {key: value for key, value in config.items() if key != "api_key"}
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    CONFIG_DIR.chmod(0o700)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(CONFIG_FILE, flags, 0o600)
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            descriptor = -1
-            output.write(json.dumps(sanitized, indent=2) + "\n")
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+    write_private_text(CONFIG_FILE, json.dumps(sanitized, indent=2) + "\n", restrict_parent=True)
 
 
 # ── ANSI ──────────────────────────────────────────────────────────────────────
@@ -463,11 +469,7 @@ class ClaudeProvider(AIProvider):
 
     def __init__(self, api_key: str):
         super().__init__(api_key)
-        import anthropic
-        import httpx
-        ca = _ca_bundle_path()
-        http_client = httpx.Client(verify=ca) if ca else None
-        self.client: Any = anthropic.Anthropic(api_key=api_key, http_client=http_client)
+        self.client = create_claude_client(api_key)
         self.model = "claude-sonnet-4-20250514"
         self._tools: Any = self._convert_tools()
 
@@ -528,11 +530,7 @@ class OpenAIProvider(AIProvider):
 
     def __init__(self, api_key: str):
         super().__init__(api_key)
-        import httpx
-        from openai import OpenAI
-        ca = _ca_bundle_path()
-        http_client = httpx.Client(verify=ca) if ca else None
-        self.client: Any = OpenAI(api_key=api_key, http_client=http_client)
+        self.client = create_openai_client(api_key)
         self.model = "gpt-4o"
         self._tools: Any = self._convert_tools()
         self.messages: list[Any] = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -594,18 +592,18 @@ class GeminiProvider(AIProvider):
     def __init__(self, api_key: str):
         super().__init__(api_key)
         import os
-        ca = _ca_bundle_path()
+        ca = provider_ca_bundle_path()
         if ca:
             os.environ.setdefault("SSL_CERT_FILE", ca)
             os.environ.setdefault("REQUESTS_CA_BUNDLE", ca)
-        from google import genai
+        genai = import_module("google.genai")
         self.genai_client: Any = genai.Client(api_key=api_key)
         self.model = "gemini-2.5-flash"
         self._tools: Any = self._convert_tools()
         self._chat: Any = None
 
     def _convert_tools(self) -> Any:
-        from google.genai import types
+        types = import_module("google.genai").types
         declarations = []
         for t in TOOL_DEFINITIONS:
             props = t["parameters"].get("properties", {})
@@ -627,7 +625,7 @@ class GeminiProvider(AIProvider):
         return [types.Tool(function_declarations=declarations)]
 
     def chat(self, user_message: str) -> str:
-        from google.genai import types
+        types = import_module("google.genai").types
 
         if self._chat is None:
             self._chat = self.genai_client.chats.create(
@@ -717,13 +715,11 @@ def _get_pip_package(provider_name: str) -> str:
 
 def _check_library(provider_name: str) -> bool:
     """Check if the required library is installed."""
+    modules = {"claude": "anthropic", "openai": "openai", "gemini": "google.genai"}
+    if provider_name not in modules:
+        return False
     try:
-        if provider_name == "claude":
-            import anthropic  # noqa: F401
-        elif provider_name == "openai":
-            import openai  # noqa: F401
-        elif provider_name == "gemini":
-            from google import genai  # noqa: F401
+        import_module(modules[provider_name])
         return True
     except ImportError:
         return False

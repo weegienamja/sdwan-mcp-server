@@ -6,10 +6,13 @@ import json
 import logging
 import os
 import threading
+from importlib import import_module
 from typing import Any, Protocol, cast
 
 from cisco_vmanage_mcp.ai_providers import (
     PROVIDERS,
+    create_claude_client,
+    create_openai_client,
     get_saved_api_key,
     provider_ca_bundle_path,
 )
@@ -55,15 +58,7 @@ class _ClaudeExplainer:
     provider_name = "claude"
 
     def __init__(self, api_key: str, model: str) -> None:
-        import anthropic
-        import httpx
-
-        ca_bundle = provider_ca_bundle_path()
-        self._http_client = httpx.Client(verify=ca_bundle or True)
-        self._client: Any = anthropic.Anthropic(
-            api_key=api_key,
-            http_client=self._http_client,
-        )
+        self._client = create_claude_client(api_key)
         self._model = model
         self._lock = threading.Lock()
 
@@ -81,19 +76,14 @@ class _ClaudeExplainer:
         return text[:MAX_EXPLANATION_CHARACTERS] or "(No provider explanation)"
 
     def close(self) -> None:
-        self._http_client.close()
+        self._client.close()
 
 
 class _OpenAIExplainer:
     provider_name = "openai"
 
     def __init__(self, api_key: str, model: str) -> None:
-        import httpx
-        from openai import OpenAI
-
-        ca_bundle = provider_ca_bundle_path()
-        self._http_client = httpx.Client(verify=ca_bundle or True)
-        self._client: Any = OpenAI(api_key=api_key, http_client=self._http_client)
+        self._client = create_openai_client(api_key)
         self._model = model
         self._lock = threading.Lock()
 
@@ -110,7 +100,7 @@ class _OpenAIExplainer:
         return str(text)[:MAX_EXPLANATION_CHARACTERS]
 
     def close(self) -> None:
-        self._http_client.close()
+        self._client.close()
 
 
 class _GeminiExplainer:
@@ -121,11 +111,10 @@ class _GeminiExplainer:
         if ca_bundle:
             os.environ.setdefault("SSL_CERT_FILE", ca_bundle)
             os.environ.setdefault("REQUESTS_CA_BUNDLE", ca_bundle)
-        from google import genai
-        from google.genai import types
+        genai = import_module("google.genai")
 
         self._client: Any = genai.Client(api_key=api_key)
-        self._types = types
+        self._types = genai.types
         self._model = model
         self._lock = threading.Lock()
 

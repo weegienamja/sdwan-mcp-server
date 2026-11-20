@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import time
-from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
+from mcp.server.fastmcp import Context
 
 from cisco_vmanage_mcp.tools import (
     alarm_tools,
@@ -163,10 +164,8 @@ class RecordingClient:
         return "hostname edge-1\n!"
 
 
-def _context(client: RecordingClient):
-    return SimpleNamespace(
-        request_context=SimpleNamespace(lifespan_context={"vmanage": client})
-    )
+def tool_context(client: object) -> Context:
+    return Context(request_context=Mock(lifespan_context={"vmanage": client}))
 
 
 TOOL_CASES = [
@@ -201,7 +200,7 @@ async def test_retrieval_tool_formats_and_read_only_calls(
     client = RecordingClient()
 
     result = await tool(
-        ctx=_context(client),
+        ctx=tool_context(client),
         response_format=response_format,
         **arguments,
     )
@@ -235,11 +234,7 @@ async def test_event_device_filter_is_applied_locally() -> None:
                 ]
             }
 
-    context = SimpleNamespace(
-        request_context=SimpleNamespace(
-            lifespan_context={"vmanage": EventClient()}
-        )
-    )
+    context = tool_context(EventClient())
 
     result = await alarm_tools.vmanage_list_events(
         ctx=context,
