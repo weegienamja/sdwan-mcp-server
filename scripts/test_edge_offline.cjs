@@ -1,4 +1,4 @@
-// Run with an extracted Windows kit and local GGUF. BLAIRSCOPE_TEST_BROWSER
+// Run with an extracted Windows kit and local GGUF. DEMARC_TEST_BROWSER
 // can point to Chrome for Testing in place of the installed Edge.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -154,7 +154,7 @@ async function main() {
     const edge = path.join(process.env["ProgramFiles(x86)"], "Microsoft", "Edge", "Application", "msedge.exe");
     const openBrowser = async () => {
       const fixtureContext = await chromium.launchPersistentContext(path.join(root, "profile"), {
-        executablePath: process.env.BLAIRSCOPE_TEST_BROWSER || edge, headless: true, ignoreHTTPSErrors: true, env,
+        executablePath: process.env.DEMARC_TEST_BROWSER || edge, headless: true, ignoreHTTPSErrors: true, env,
         ignoreDefaultArgs: ["--disable-extensions"],
         args: ["--remote-debugging-port=0", "--enable-unsafe-extension-debugging", "--window-size=1280,1100",
           "--disable-background-networking", "--no-proxy-server",
@@ -231,10 +231,10 @@ async function main() {
     await wait("!byId('ask').disabled && byId('manager').textContent.includes('localhost')");
     assert.equal(calls.length, 14);
     assert.equal(await read("byId('saved').options.length"), 1, "Sandbox exposed a work conversation");
-    if (process.env.BLAIRSCOPE_SCREENSHOT) {
+    if (process.env.DEMARC_SCREENSHOT) {
       const {data} = await chat.command("Page.captureScreenshot", {format:"png", captureBeyondViewport:true,
         clip: await read("({x:0, y:0, width:innerWidth, height:document.documentElement.scrollHeight, scale:1})")});
-      fs.writeFileSync(process.env.BLAIRSCOPE_SCREENSHOT, Buffer.from(data, "base64"));
+      fs.writeFileSync(process.env.DEMARC_SCREENSHOT, Buffer.from(data, "base64"));
     }
     await read("byId('sandbox').click()");
     await wait("byId('manager').textContent.includes('127.0.0.1') && byId('state').textContent.includes('Sign in')");

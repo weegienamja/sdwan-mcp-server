@@ -112,7 +112,8 @@ async def _run(
               help="Additional PEM trust bundle for Manager.")
 @click.option("--check-model", is_flag=True, help="Test local inference with synthetic data and exit.")
 def main(model_file, server, manager, ca_file, check_model):
-    """Ask a local GGUF about your Cisco SD-WAN estate using read-only evidence."""
+    """Demarc. SD-WAN diagnostics by Jamie Blair."""
+    click.echo("Demarc\nSD-WAN diagnostics by Jamie Blair\n")
     executable = server or shutil.which("llama-server")
     if not executable:
         raise click.ClickException("Use the workstation kit or supply --llama-server PATH.")

@@ -148,6 +148,7 @@ def main() -> int:
         parser.add_argument("--sandbox-manager", default=DEFAULT_SANDBOX)
         parser.add_argument("--model", type=Path)
         options = parser.parse_args(sys.argv[2:])
+        print("Demarc\nSD-WAN diagnostics by Jamie Blair\n")
         origin = options.manager if options.manager is not None else input(
             "Work Manager HTTPS hostname (press Enter for DevNet only): "
         ).strip()
@@ -157,7 +158,7 @@ def main() -> int:
         except (ValueError, OSError) as exc:
             print(str(exc), file=sys.stderr)
             return 1
-        print("BlairScope is ready. Open edge://extensions or chrome://extensions and load this folder:")
+        print("Demarc is ready. Open edge://extensions or chrome://extensions and load this folder:")
         print(kit / "Edge extension")
         return 0
     if len(sys.argv) < 2 or sys.argv[1] != EXTENSION:

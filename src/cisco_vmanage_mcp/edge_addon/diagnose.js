@@ -108,19 +108,19 @@ async function capture(s) {
     const tab = await chrome.tabs.get(s.tabId);
     if (s !== session || !s.connected) return;
     if (!tab.active || tab.windowId !== windowId || !tab.url || new URL(tab.url).origin !== s.origin) {
-      throw new Error("Sign in to the Manager shown above, then click BlairScope in that tab’s toolbar.");
+      throw new Error("Sign in to the Manager shown above, then click Demarc in that tab’s toolbar.");
     }
     const target = s.documentId ? {tabId: s.tabId, documentIds: [s.documentId]} : {tabId: s.tabId};
     const [frame] = await chrome.scripting.executeScript({
       target, world: "ISOLATED", func: collectSnapshot, args: [s.origin, spec, selected]
     });
     if (s !== session || !s.connected) return;
-    if (!frame?.result) throw new Error("The Manager page changed. Click BlairScope again.");
+    if (!frame?.result) throw new Error("The Manager page changed. Click Demarc again.");
     s.documentId = frame.documentId;
     const snapshot = frame.result;
     showSources(snapshot.tables);
     const states = Object.values(snapshot.tables).map(source => source.state);
-    if (states.includes("sign-in required")) throw new Error("Manager requires sign-in. Sign in and click BlairScope again.");
+    if (states.includes("sign-in required")) throw new Error("Manager requires sign-in. Sign in and click Demarc again.");
     const inv = snapshot.tables.inventory;
     if (!["ok", "partial"].includes(inv.state)) throw new Error("Inventory " + inv.state + ". Check Cisco access.");
     await request(s, {type: "capture", origin: s.origin, snapshot});
@@ -177,13 +177,13 @@ async function bind(tabId, captureOnReady) {
     if (s !== session) return;
     clearEvidence();
     el("manager").textContent = "Windows host unavailable";
-    el("state").textContent = "Run Set up BlairScope.cmd from the extracted kit, then click BlairScope again. " + reason;
+    el("state").textContent = "Run Set up Demarc.cmd from the extracted kit, then click Demarc again. " + reason;
     controls();
   });
   try {
     const hello = await request(s, {type: "hello"});
     if (s !== session) return;
-    if (!hello.chat_history) throw new Error("Install the current Windows kit and run Set up BlairScope.cmd to enable chat history.");
+    if (!hello.chat_history) throw new Error("Install the current Windows kit and run Set up Demarc.cmd to enable chat history.");
     if (!mode) {
       const tab = Number.isInteger(tabId) ? await chrome.tabs.get(tabId) : null;
       if (s !== session) return;
@@ -207,8 +207,8 @@ async function bind(tabId, captureOnReady) {
     showMode();
     renderChat(s);
     el("state").textContent = s.origin
-      ? "Click BlairScope in the signed-in Manager tab to capture a snapshot."
-      : "Run Set up BlairScope.cmd to add your work Manager, or switch on Sandbox mode.";
+      ? "Click Demarc in the signed-in Manager tab to capture a snapshot."
+      : "Run Set up Demarc.cmd to add your work Manager, or switch on Sandbox mode.";
     controls();
     if (s.captureOnReady) await capture(s);
   } catch (error) {

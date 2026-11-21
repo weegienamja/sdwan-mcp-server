@@ -2,7 +2,7 @@
   "name": "cisco-vmanage-mcp",
   "displayName": "Cisco vManage MCP",
   "description": "Read-only Cisco SD-WAN vManage inventory, health, correlation, and incident diagnostics",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "license": "Apache-2.0",
   "repository": "https://wwwin-github.cisco.com/jamiblai/sdwan-mcp-server",
   "command": "python",

@@ -1,5 +1,6 @@
 // IndexedDB belongs to this extension and browser profile. Crypto work happens
 // outside write transactions so an awaited encryption cannot commit one early.
+// This persistent ID also locates the encryption key for existing conversations.
 const databaseName = "blairscope-chats";
 const changedMessage = "This chat changed in another window. Open Saved chats again before continuing.";
 const encoder = new TextEncoder();

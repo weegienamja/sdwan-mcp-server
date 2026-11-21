@@ -1,5 +1,5 @@
 @echo off
-title BlairScope browser setup
+title Demarc browser setup
 setlocal
 "%~dp0python\python.exe" -B -X utf8 -m cisco_vmanage_mcp.edge_host --setup %*
 set "sdwan_result=%errorlevel%"

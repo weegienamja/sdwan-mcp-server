@@ -1,4 +1,6 @@
-# BlairScope for Windows
+# Demarc
+
+SD-WAN diagnostics by Jamie Blair
 
 Use your existing Qwen3.5-4B GGUF to ask about the devices visible to your own Cisco account. The workstation runs on one Windows x64 laptop. It includes Python and a CPU build of llama.cpp. The GGUF stays in your Downloads folder.
 
@@ -6,30 +8,32 @@ The Windows app and Edge/Chrome extension are distributed together. [Download th
 
 ## Sign in with Edge or Chrome
 
-1. Extract the Windows x64 ZIP into a permanent local folder. Run **Set up BlairScope.cmd** under your usual Windows account. Enter the work Manager HTTPS origin including any port, or press Enter to use DevNet only. Select your Qwen3.5-4B GGUF from Downloads. Setup registers the same local host for Edge and Chrome.
-2. Open `edge://extensions` or `chrome://extensions` in your work browser profile. Where company policy permits, enable **Developer mode**, choose **Load unpacked** and select the kit’s **Edge extension** folder. In the browser’s Extensions menu, pin **BlairScope**. Managed installations may require IT distribution. When upgrading from the previous kit, run the new setup and load the new extension folder together.
-3. In work mode, open the configured Manager, finish the usual SSO and MFA, and click **BlairScope** in that tab’s toolbar (or press **Alt+Shift+Q**). The full-height sidebar displays your capture beside the dashboard. The browser controls which side it docks on. In Chrome choose **Right** under **Settings → Appearance → Side panel** for a right-hand drawer.
-4. Ask **Which sites have unreachable devices?** Use **Device detail** to inspect a router or **Refresh snapshot** for current data. Switching modes or active tabs clears the visible snapshot and conversation. Use **Saved chats** to reopen a thread for the selected environment. Click BlairScope on the desired Manager tab to capture again.
+**Upgrading an unpacked installation?** Close the sidebar, extract the new kit over the same installation folder and choose **Reload** on the extension’s card in `edge://extensions` or `chrome://extensions`. Use the same browser profile. This keeps your chat history and Windows settings. If you move the kit, run **Set up Demarc.cmd** from its new location and load its **Edge extension** folder.
+
+1. Extract the Windows x64 ZIP into a permanent local folder. Run **Set up Demarc.cmd** under your usual Windows account. Enter the work Manager HTTPS origin including any port, or press Enter to use DevNet only. Select your Qwen3.5-4B GGUF from Downloads. Setup registers the same local host for Edge and Chrome.
+2. Open `edge://extensions` or `chrome://extensions` in your work browser profile. Where company policy permits, enable **Developer mode**, choose **Load unpacked** and select the kit’s **Edge extension** folder. In the browser’s Extensions menu, pin **Demarc**. Managed installations may require IT distribution. When upgrading from the previous kit, run the new setup and load the new extension folder together.
+3. In work mode, open the configured Manager, finish the usual SSO and MFA, and click **Demarc** in that tab’s toolbar (or press **Alt+Shift+Q**). The full-height sidebar displays your capture beside the dashboard. The browser controls which side it docks on. In Chrome choose **Right** under **Settings → Appearance → Side panel** for a right-hand drawer.
+4. Ask **Which sites have unreachable devices?** Use **Device detail** to inspect a router or **Refresh snapshot** for current data. Switching modes or active tabs clears the visible snapshot and conversation. Use **Saved chats** to reopen a thread for the selected environment. Click Demarc on the desired Manager tab to capture again.
 
 ## Chat history
 
 - Ask a follow-up in the same chat, such as **Are there any critical alarms there?** after asking about a particular site. Qwen receives the current capture and selected earlier exchanges. Chatting, opening a saved thread and starting a new chat make no additional Cisco requests.
 - Choose **New chat** for an empty conversation. Its first answered question becomes its title in **Saved chats**. Select a saved chat to read it, including after restarting the browser or while Manager is unreachable. The Windows host must be available. Capture a snapshot from the signed-in Manager tab to ask a new question. Use **Show earlier messages** for longer transcripts. Each answer shows its original snapshot time.
-- The full transcript stays available locally. To fit the GGUF context window, Qwen receives excerpts from up to eight previous exchanges. For longer threads BlairScope includes the latest six and two older exchanges selected by matching words in the new question. A refresh supplies current evidence while retaining the open thread.
+- The full transcript stays available locally. To fit the GGUF context window, Qwen receives excerpts from up to eight previous exchanges. For longer threads Demarc includes the latest six and two older exchanges selected by matching words in the new question. A refresh supplies current evidence while retaining the open thread.
 - Questions, answers and capture times are saved in the extension’s local IndexedDB. Titles and turns are encrypted with a non-exportable AES key stored in that browser profile. History is partitioned by browser profile, exact Manager address and work/sandbox mode. Use separate browser profiles if you use different Cisco identities on the same Manager. In a private window chat lasts for the current panel session only.
 - To remove a thread, open it and choose **Manage this chat → Delete this chat → Confirm deletion**. Removing the extension or its profile storage can also remove saved history. Chats from versions before 2.5 were held only in memory.
 
 ## DevNet sandbox
 
-Switch on **Sandbox mode** and choose **Sign in to DevNet**. In Cisco’s catalogue, launch the SD-WAN sandbox and follow its reservation instructions, including VPN access if specified. Use the credentials Cisco provides on the lab Manager’s own sign-in page. After sign-in, click BlairScope in the lab Manager tab. **Open lab Manager** opens the configured lab address directly when you already have a reservation. Catalogue sign-in and Manager sign-in are separate steps. [Cisco’s reservation guide](https://developer.cisco.com/docs/sandbox/getting-started/)
+Switch on **Sandbox mode** and choose **Sign in to DevNet**. In Cisco’s catalogue, launch the SD-WAN sandbox and follow its reservation instructions, including VPN access if specified. Use the credentials Cisco provides on the lab Manager’s own sign-in page. After sign-in, click Demarc in the lab Manager tab. **Open lab Manager** opens the configured lab address directly when you already have a reservation. Catalogue sign-in and Manager sign-in are separate steps. [Cisco’s reservation guide](https://developer.cisco.com/docs/sandbox/getting-started/)
 
-The kit defaults to `https://sandbox-sdwan-2.cisco.com`. If the reservation lists a different Manager address, run the following in PowerShell inside the extracted kit, substituting its exact HTTPS origin. Complete the work Manager and GGUF prompts again, then reopen BlairScope.
+The kit defaults to `https://sandbox-sdwan-2.cisco.com`. If the reservation lists a different Manager address, run the following in PowerShell inside the extracted kit, substituting its exact HTTPS origin. Complete the work Manager and GGUF prompts again, then reopen Demarc.
 
 ```powershell
-& '.\Set up BlairScope.cmd' --sandbox-manager 'https://lab-manager.example.com:8443'
+& '.\Set up Demarc.cmd' --sandbox-manager 'https://lab-manager.example.com:8443'
 ```
 
-BlairScope uses the browser’s existing same-origin access. Each mode accepts only its configured Manager origin. Inventory, alarms and device details use six fixed GET endpoints. Blocked reads and expired sign-ins appear in **Collection results**. [Cisco CSRF documentation](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/cisco-sd-wan-api-cross-site-request-forgery-prevention.html)
+Demarc uses the browser’s existing same-origin access. Each mode accepts only its configured Manager origin. Inventory, alarms and device details use six fixed GET endpoints. Blocked reads and expired sign-ins appear in **Collection results**. [Cisco CSRF documentation](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/cisco-sd-wan-api-cross-site-request-forgery-prevention.html)
 
 Only allowlisted evidence fields and source status travel to the Windows process through browser Native Messaging. Cisco session cookies, passwords, authorization headers and raw configurations stay out of the messages. Raw snapshots stay in memory. Chat transcripts are stored locally as described above. Qwen has no mechanism for requesting new Manager data. Collection is capped at 1,500 inventory rows, 250 alarms and 250 rows per connection table, with partial or oversized responses identified. [Microsoft Edge Native Messaging](https://learn.microsoft.com/en-us/microsoft-edge/extensions/developer-guide/native-messaging)
 
@@ -38,7 +42,7 @@ For deployment, setup writes `settings.json` and `edge-host.json` under `%LOCALA
 ## Terminal mode with a personal API token
 
 1. Extract the entire **SD-WAN-Workstation-Windows-x64.zip** into a local folder. Keep the launcher, Python and llama folders together.
-2. Double-click **Start SD-WAN.cmd**. It looks for Qwen3.5-4B in your Downloads folder. If several GGUFs match, choose a model. If your Downloads folder is redirected or the filename differs, paste the full path. For split files, keep all the shards together and choose the first.
+2. Double-click **Start Demarc.cmd**. It looks for Qwen3.5-4B in your Downloads folder. If several GGUFs match, choose a model. If your Downloads folder is redirected or the filename differs, paste the full path. For split files, keep all the shards together and choose the first.
 3. Connect to your company network or VPN. Enter the HTTPS hostname of your Cisco Catalyst SD-WAN Manager. Check the displayed address, then open it in your browser from the prompt. Complete your normal SSO and MFA.
 4. In Manager, open **My Profile → API Token**. Copy your personal token, generating it if your company's policy allows and none exists. Paste it into the hidden terminal prompt. The app tests an inventory GET and shows how many devices your role can see. [Cisco's profile token guide](https://www.cisco.com/c/en/us/td/docs/routers/sdwan/configuration/sdwan-xe-gs-book/m-cisco-sd-wan-manager-jwt-based-authentication-for-apis.html)
 5. Ask a question. Each response shows the Manager endpoints used and which reads succeeded. Type `/quit` to close the session and stop the model.
@@ -46,7 +50,7 @@ For deployment, setup writes `settings.json` and `edge-host.json` under `%LOCALA
 For a model-only check on a disconnected laptop, run this from PowerShell in the extracted folder. It submits a synthetic three-device inventory to the GGUF.
 
 ```powershell
-& '.\Start SD-WAN.cmd' --check-model
+& '.\Start Demarc.cmd' --check-model
 ```
 
 Example questions
